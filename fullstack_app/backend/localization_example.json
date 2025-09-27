@@ -1,0 +1,139 @@
+{
+  "website_metadata": {
+    "site_name": "Octopi Poker AI",
+    "language": "en",
+    "locale": "en-US",
+    "version": "1.0.0"
+  },
+  "pages": {
+    "homepage": {
+      "meta": {
+        "title": "Octopi Poker - Master Your Poker Skills",
+        "description": "Join Octopi Poker's vibrant community to enhance your poker skills with comprehensive courses, expert coaching, and interactive forums.",
+        "keywords": "poker, poker training, poker community, poker courses, poker coaching"
+      },
+      "navigation": {
+        "logo_alt": "Octopi Poker Logo",
+        "menu_items": {
+          "the_vault": "The Vault",
+          "my_hands": "My Hands", 
+          "analysis": "Analysis",
+          "trainer": "Trainer",
+          "find": "Find...",
+          "ask_george": "Ask George",
+          "pricing": "Pricing",
+          "learn_more": "Learn More"
+        }
+      },
+      "hero_section": {
+        "header": "Poker study for everyone, beginners to elite",
+        "subheader": "Inuitive. Affordable. Fun.",
+        "button_1": "Start traning now"
+      },
+      "testimonials_section": {
+        "meta_data": "Testimonial carousel",
+        "testimonials": [
+          {
+            "name": "Brian Rast",
+            "description": "Looks like a perfect tool to study. Makes it fun while giving good information."
+          },
+          {
+            "name": "Phil Laak",
+            "description": "It's an incredible poker learning tool. And fun as well!"
+          },
+          {
+            "name": "Joshua Arieh",
+            "description": "First time I've enjoyed studying. This is 10x more fun than 'practicing' online!"
+          },
+          {
+            "name": "Lucky Eva",
+            "description": "Love, love, LOVE Octopi! Thanks to the entire team for creating it!"
+          },
+          {
+            "name": "Publius",
+            "description": "The use of the Trainer alone would have been a steal at twice the price!"
+          },
+          {
+            "name": "JackRag",
+            "description": "I've used other Trainers before, but Octopi makes the most sense to me - so intuitive!"
+          },
+          {
+            "name": "Ryan Laplante",
+            "description": "Octopi is the best value GTO study tool on the market and what I use to improve my game."
+          },
+          {
+            "name": "Eric Baldwin",
+            "description": "Cutting-edge and a game-changer. Its vibrant community fosters growth where improvement is fun."
+          },
+          {
+            "name": "Brian Hastings",
+            "description": "As a coach, I use Octopi Vault to review final tables with sims. It's an awesome resource; I strongly recommend!"
+          },
+          {
+            "name": "Sampo37",
+            "description": "Octopi Poker has helped me transform the way I study. I love instant feedback on how to play as optimally as possible."
+          },
+          {
+            "name": "Aaron Paul Kramer",
+            "description": "Studying a GAME shouldn't ever be daunting or stressful. Octopi solves both those issues and makes studying the game itself fun!"
+          },
+          {
+            "name": "1to11er",
+            "description": "It's not a coincidence that my best year of poker coincides with subscription to Octopi."
+          },
+          {
+            "name": "Ubbster",
+            "description": "Absolutely brilliant poker study tool! And superb support team!"
+          },
+          {
+            "name": "Shundan",
+            "description": "I love drilling against the trainer, especially for ICM FT spots - it's fun and builds confidence in high-stakes spots where I lack experience."
+          },
+          {
+            "name": "Diane Zimmerman",
+            "description": "Octopi Poker creates and reinforces the right feedback loops for poker decision-making, and it's fun!"
+          }
+        ]
+      },
+      "store_section": {
+        "header": "Octopi Store",
+        "body": "Embrace your inner octopus and proudly wear the exclusive Octopi merch. Elegant and comfortable, it is made for grinders like you.",
+        "button_1": "Shop Now"
+      },
+      "coaching_section": {
+        "header": "Coaching Marketplace",
+        "body": "Direct access to best poker coaches for every game, skill level and price point.",
+        "button_1": "Explore Forum Now"
+      },
+      "vault_overview_section": {
+        "header": "The Vault",
+        "body": {
+            "paragraph_1": "Relive the excitement of high-stakes poker from Triton, PokerGO, WSOP and more. Over 18K hands and 2k preflop and postflop ICM sims to explore in both live play and HH replayer format.",
+            "paragraph_2": "Or, put your skills to the test with our immersive trainer experience and compare your plays to those of the real players along with the AI solutions."
+        },
+        "button_1": "Review Hands"
+      },
+      "product_tutorials_section": {
+        "header": "Product Tutorials"
+      },
+      "ask_george_section": {
+        "meta_data": "example one turn interaction with George, Octopi's AI coach",
+        "header": "Ask George",
+        "body": {
+            "paragraph_1": "Hello, I’m George, AI assistant in the poker world. Ask me anything related to poker, and I’ll try to be helpful in your path to poker mastery!",
+            "paragraph_2": "How do I calculate pot odds?"
+        },
+        "button_1": "Ask George"
+      },
+      "footer": {
+        "copyright": "© 2025 Octopi Poker Studios, Inc. All rights reserved.",
+        "menu_items": {
+            "item_1": "Acceptable Use Policy",
+            "item_2": "Terms of Service",
+            "item_3": "Privacy Policy",
+            "item_4": "Contact Us"
+        }
+      }
+    }
+  }
+}
