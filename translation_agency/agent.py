@@ -36,7 +36,7 @@ session = session_service.create_session(
     user_id=USER_ID,
     session_id=SESSION_ID_BASE,
     state={
-        "source_text": "On 09/27/2025, the new regulations will take effect. All packages over 5 pounds must be shipped via a special carrier. The required storage temperature is 68 degrees Fahrenheit, and the maximum shipping distance is 100 miles.",
+        "source_text": "The internet has revolutionized how we communicate, learn, and work. It connects billions of people worldwide instantly.",
         "target_language": "Spanish",  # Default to Spanish
         "current_translation": "",
         "translation_critique": ""
@@ -44,6 +44,12 @@ session = session_service.create_session(
 )
 
 # --- Tool Definition ---
+def set_target_language(tool_context: ToolContext, language: str):
+    """Sets the target language for translation."""
+    print(f"  [Tool Call] Setting target language to: {language}")
+    tool_context.session.state["target_language"] = language
+    return {"status": "success", "language_set": language}
+
 def exit_translation_loop(tool_context: ToolContext):
     """Call this function ONLY when the translation critique indicates no further improvements are needed."""
     print(f"  [Tool Call] exit_translation_loop triggered by {tool_context.agent_name}")
@@ -52,41 +58,54 @@ def exit_translation_loop(tool_context: ToolContext):
 
 # --- Agent Definitions ---
 
-# STEP 1: Initial Translator Agent
+# STEP 1: Initial Translator Agent with language detection
 initial_translator_agent = LlmAgent(
     name="InitialTranslatorAgent",
     model=GEMINI_MODEL,
-    include_contents='default',  # Use 'default' instead of 'all'
-    instruction="""You are a professional translator. 
+    include_contents='default',
+    instruction="""You are a professional translator and localizer with language detection capabilities.
 
-    CRITICAL INSTRUCTIONS:
-    1.  **Translate to Spanish:** Your primary goal is to translate the meaning accurately.
-    2.  **Localize and Convert:** You MUST also adjust formats and units for a non-US audience.
+    Your task:
+    1.  **Detect Language:** First, check if the user specified a target language in their message.
+        - Look for phrases like "to French", "in German", "to Japanese", etc.
+        - If a language is specified, call the `set_target_language` tool with that language.
+        - If no language is specified, call `set_target_language` with "Spanish" as the default.
+
+    2.  **Translate and Localize:** After setting the language, translate the English text to the target language. You MUST also adjust formats and units to be culturally and regionally appropriate.
         * **Dates:** Convert `MM/DD/YYYY` to `DD/MM/YYYY`.
         * **Measurements:** Convert imperial units to metric.
             * miles -> kilometers (km)
             * pounds (lbs) -> kilograms (kg)
             * feet -> meters (m)
         * **Temperature:** Convert Fahrenheit (°F) to Celsius (°C).
-    3.  **Output ONLY the final Spanish text.** Do not include original values, explanations, or commentary.
 
-    Example:
-    Input: "The package weighs 10 pounds and must be delivered 50 miles by 12/31/2024."
-    Output: "El paquete pesa 4.54 kg y debe ser entregado a 80.47 km para el 31/12/2024."
+    3.  **Output:** Output ONLY the final, translated, and localized text. Do not include original values, explanations, or commentary.
 
-    Remember: ALWAYS Spanish, ONLY the localized translation.""",
-    description="Performs initial translation from English to Spanish, including localization of units and formats.",
+    Example Workflow 1 (Language specified):
+    User: "The package weighs 10 pounds and must be delivered 50 miles by 12/31/2024 to French"
+    You:
+    1) Call set_target_language("French")
+    2) Output: "Le colis pèse 4.54 kg et doit être livré à 80.47 km d'ici le 31/12/2024."
+
+    Example Workflow 2 (No language specified):
+    User: "The package weighs 10 pounds and must be delivered 50 miles by 12/31/2024."
+    You:
+    1) Call set_target_language("Spanish")
+    2) Output: "El paquete pesa 4.54 kg y debe ser entregado a 80.47 km para el 31/12/2024."
+    """,
+    description="Detects target language, then performs translation and localization of units and formats.",
+    tools=[set_target_language],
     output_key=STATE_CURRENT_TRANSLATION
 )
 
-# STEP 2a: Translation Critic Agent
+# STEP 2a: Translation Critic Agent (now language-aware)
 translation_critic_agent = LlmAgent(
     name="TranslationCriticAgent",
     model=GEMINI_MODEL,
     include_contents='default',
-    instruction=f"""You are a Spanish translation quality reviewer.
+    instruction=f"""You are a multilingual translation quality reviewer.
 
-    Review the Spanish translation that was just produced.
+    Review the translation that was just produced. The target language was set in the previous step.
     
     Evaluate for:
     1. Accuracy - Is the English meaning preserved in Spanish?
@@ -94,24 +113,24 @@ translation_critic_agent = LlmAgent(
     3. Fluency - Does it sound natural in Spanish?
     4. Localization - Have dates (to DD/MM/YYYY) in applicable countries, measurements (miles to km, pounds to kg) in countries with metric system, and temperatures (Fahrenheit to Celsius) been correctly converted for a Spanish-speaking audience?
 
-
-    IF there are issues (translation or conversion errors):
-    - Output specific corrections (e.g., "Change '160 km' to '160.93 km'" or "Date format should be DD/MM/YYYY")
+    IF there are issues:
+    - Output specific corrections relevant to the target language
+    - Output specific corrections relating to the conversion of measurements(e.g., "Change '160 km' to '160.93 km'" or "Date format should be DD/MM/YYYY")
     - Be concise and specific
     
-    IF the Spanish translation and all conversions are good:
+    IF the translation is good and all conversions are good:
     - Output EXACTLY: {COMPLETION_PHRASE}
     - Nothing else""",
-    description="Reviews Spanish translation quality.",
+    description="Reviews translation quality for any language.",
     output_key=STATE_TRANSLATION_CRITIQUE
 )
 
-# STEP 2b: Translation Refiner Agent
+# STEP 2b: Translation Refiner Agent (language-aware)
 translation_refiner_agent = LlmAgent(
     name="TranslationRefinerAgent",
     model=GEMINI_MODEL,
     include_contents='default',
-    instruction=f"""You are a Spanish translation refiner.
+    instruction=f"""You are a multilingual translation refiner.
 
     Review the critique provided.
     
@@ -120,10 +139,11 @@ translation_refiner_agent = LlmAgent(
     - Do not output any text
     
     ELSE:
-    - Apply the suggested corrections to improve the Spanish translation
-    - Output ONLY the refined Spanish translation text
+    - Apply the suggested corrections to improve the translation
+    - Maintain the same target language that was used initially
+    - Output ONLY the refined translation text
     - No explanations""",
-    description="Refines Spanish translation based on critique or exits.",
+    description="Refines translation based on critique or exits.",
     tools=[exit_translation_loop],
     output_key=STATE_CURRENT_TRANSLATION
 )
@@ -145,7 +165,7 @@ root_agent = SequentialAgent(
         initial_translator_agent,
         translation_refinement_loop
     ],
-    description="Translates English text to Spanish with iterative quality refinement."
+    description="Translates English text to any language (default Spanish) with iterative quality refinement."
 )
 
 # Make agent available for ADK discovery
