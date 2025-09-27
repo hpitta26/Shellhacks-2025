@@ -43,13 +43,7 @@ session = session_service.create_session(
     }
 )
 
-# --- Tool Definitions ---
-def set_target_language(tool_context: ToolContext, language: str = "Spanish"):
-    """Sets the target language for translation. Default is Spanish."""
-    print(f"  [Tool Call] Setting target language to: {language}")
-    tool_context.session.state["target_language"] = language
-    return {"status": "success", "language_set": language}
-
+# --- Tool Definition ---
 def exit_translation_loop(tool_context: ToolContext):
     """Call this function ONLY when the translation critique indicates no further improvements are needed."""
     print(f"  [Tool Call] exit_translation_loop triggered by {tool_context.agent_name}")
@@ -58,52 +52,27 @@ def exit_translation_loop(tool_context: ToolContext):
 
 # --- Agent Definitions ---
 
-# STEP 0: Language Selector Agent (Optional - can be called to change language)
-language_selector_agent = LlmAgent(
-    name="LanguageSelectorAgent",
-    model=GEMINI_MODEL,
-    include_contents='none',
-    instruction="""You are a language selection assistant.
-
-    Current target language: {{session.state["target_language"]}}
-    
-    The user wants to translate English text to another language.
-    Common languages include: Spanish, French, German, Italian, Portuguese, Chinese (Mandarin), 
-    Japanese, Korean, Arabic, Russian, Hindi, Dutch, Swedish, Polish, Turkish.
-    
-    If no specific language is mentioned, use Spanish as the default.
-    
-    Call the set_target_language function with the appropriate language.
-    
-    OUTPUT: After setting the language, confirm by saying only:
-    "Target language set to: [language]"
-    """,
-    description="Sets the target language for translation.",
-    tools=[set_target_language]
-)
-
 # STEP 1: Initial Translator Agent
 initial_translator_agent = LlmAgent(
     name="InitialTranslatorAgent",
     model=GEMINI_MODEL,
-    include_contents='none',
-    instruction="""You are a translation bot. Your ONLY job is to output translations.
+    include_contents='default',  # Use 'default' instead of 'all'
+    instruction="""You are a professional translator. 
 
-    Source Text (English): {{session.state["source_text"]}}
-    Target Language: {{session.state["target_language"]}}
-
-    OUTPUT RULES:
-    - Output ONLY the translation in the target language
-    - Do NOT add ANY explanations, greetings, or commentary
-    - Do NOT use quotation marks around the translation
-    - Do NOT say "Here is the translation" or similar phrases
-    - JUST output the translated text directly
+    CRITICAL INSTRUCTION: You must ALWAYS translate to Spanish. Do not translate to any other language unless explicitly instructed.
+    
+    When you receive English text:
+    1. Translate it directly to Spanish
+    2. Output ONLY the Spanish translation
+    3. Do NOT add any explanations, quotes, or commentary
+    4. Do NOT translate to French, German, or any other language
     
     Example:
-    If translating "Hello world" to Spanish, output only: Hola mundo
+    Input: "Hello world"
+    Output: Hola mundo
     
-    Now translate the source text to the target language:""",
-    description="Performs initial translation from English to the specified target language.",
+    Remember: ALWAYS Spanish, ONLY the translation.""",
+    description="Performs initial translation from English to Spanish.",
     output_key=STATE_CURRENT_TRANSLATION
 )
 
@@ -111,31 +80,24 @@ initial_translator_agent = LlmAgent(
 translation_critic_agent = LlmAgent(
     name="TranslationCriticAgent",
     model=GEMINI_MODEL,
-    include_contents='none',
-    instruction=f"""You are a translation validator bot. Analyze the translation quality.
+    include_contents='default',
+    instruction=f"""You are a Spanish translation quality reviewer.
 
-    Original English: {{{{session.state["source_text"]}}}}
-    Target Language: {{{{session.state["target_language"]}}}}
-    Current Translation: {{{{session.state["current_translation"]}}}}
-
-    EVALUATION RULES:
-    Check for:
-    1. Accuracy - meaning preserved?
-    2. Grammar - correct in target language?
-    3. Natural flow - sounds native?
-
-    OUTPUT RULES:
-    IF translation needs improvement:
-    - Output ONLY specific corrections needed
-    - Example: "Change 'X' to 'Y' for better fluency"
-    - Do NOT add explanations or greetings
+    Review the Spanish translation that was just produced.
     
-    IF translation is good enough:
+    Evaluate for:
+    1. Accuracy - Is the English meaning preserved in Spanish?
+    2. Grammar - Is the Spanish grammatically correct?
+    3. Fluency - Does it sound natural in Spanish?
+
+    IF there are issues:
+    - Output specific corrections (e.g., "Change 'palabra' to 'término'")
+    - Be concise and specific
+    
+    IF the Spanish translation is good:
     - Output EXACTLY: {COMPLETION_PHRASE}
-    - Nothing else
-    
-    Your evaluation:""",
-    description="Reviews translation quality and provides specific improvement suggestions or signals completion.",
+    - Nothing else""",
+    description="Reviews Spanish translation quality.",
     output_key=STATE_TRANSLATION_CRITIQUE
 )
 
@@ -143,26 +105,20 @@ translation_critic_agent = LlmAgent(
 translation_refiner_agent = LlmAgent(
     name="TranslationRefinerAgent",
     model=GEMINI_MODEL,
-    include_contents='none',
-    instruction=f"""You are a translation refiner bot.
+    include_contents='default',
+    instruction=f"""You are a Spanish translation refiner.
 
-    Original English: {{{{session.state["source_text"]}}}}
-    Target Language: {{{{session.state["target_language"]}}}}
-    Current Translation: {{{{session.state["current_translation"]}}}}
-    Critique: {{{{session.state["translation_critique"]}}}}
-
-    DECISION:
-    IF critique is EXACTLY "{COMPLETION_PHRASE}":
-    - Call exit_translation_loop function
-    - Output nothing
+    Review the critique provided.
+    
+    IF the critique says EXACTLY "{COMPLETION_PHRASE}":
+    - Call the exit_translation_loop function
+    - Do not output any text
     
     ELSE:
-    - Apply the corrections mentioned in critique
-    - Output ONLY the improved translation
-    - No explanations, just the refined translation text
-    
-    Action:""",
-    description="Refines translation based on critique, or exits loop if translation is complete.",
+    - Apply the suggested corrections to improve the Spanish translation
+    - Output ONLY the refined Spanish translation text
+    - No explanations""",
+    description="Refines Spanish translation based on critique or exits.",
     tools=[exit_translation_loop],
     output_key=STATE_CURRENT_TRANSLATION
 )
@@ -177,29 +133,15 @@ translation_refinement_loop = LoopAgent(
     max_iterations=5
 )
 
-# STEP 3: Main Translation Pipeline (without language selector)
-main_translation_pipeline = SequentialAgent(
-    name="MainTranslationPipeline",
+# STEP 3: Overall Translation Pipeline
+root_agent = SequentialAgent(
+    name="IterativeTranslationPipeline",
     sub_agents=[
         initial_translator_agent,
         translation_refinement_loop
     ],
-    description="Main translation pipeline that translates and refines."
+    description="Translates English text to Spanish with iterative quality refinement."
 )
-
-# Root agent with optional language selection
-root_agent = SequentialAgent(
-    name="IterativeTranslationPipeline",
-    sub_agents=[
-        # Uncomment the line below if you want language selection to run first every time:
-        # language_selector_agent,
-        main_translation_pipeline
-    ],
-    description="Translates English text to any language with iterative quality refinement using critic feedback."
-)
-
-# Alternative: You could also expose the language_selector_agent as a separate callable agent
-# that can be invoked before the main translation pipeline when needed
 
 # Make agent available for ADK discovery
 __all__ = ["root_agent"]
