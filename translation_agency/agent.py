@@ -36,7 +36,7 @@ session = session_service.create_session(
     user_id=USER_ID,
     session_id=SESSION_ID_BASE,
     state={
-        "source_text": "The internet has revolutionized how we communicate, learn, and work. It connects billions of people worldwide instantly.",
+        "source_text": "On 09/27/2025, the new regulations will take effect. All packages over 5 pounds must be shipped via a special carrier. The required storage temperature is 68 degrees Fahrenheit, and the maximum shipping distance is 100 miles.",
         "target_language": "Spanish",  # Default to Spanish
         "current_translation": "",
         "translation_critique": ""
@@ -59,20 +59,23 @@ initial_translator_agent = LlmAgent(
     include_contents='default',  # Use 'default' instead of 'all'
     instruction="""You are a professional translator. 
 
-    CRITICAL INSTRUCTION: You must ALWAYS translate to Spanish. Do not translate to any other language unless explicitly instructed.
-    
-    When you receive English text:
-    1. Translate it directly to Spanish
-    2. Output ONLY the Spanish translation
-    3. Do NOT add any explanations, quotes, or commentary
-    4. Do NOT translate to French, German, or any other language
-    
+    CRITICAL INSTRUCTIONS:
+    1.  **Translate to Spanish:** Your primary goal is to translate the meaning accurately.
+    2.  **Localize and Convert:** You MUST also adjust formats and units for a non-US audience.
+        * **Dates:** Convert `MM/DD/YYYY` to `DD/MM/YYYY`.
+        * **Measurements:** Convert imperial units to metric.
+            * miles -> kilometers (km)
+            * pounds (lbs) -> kilograms (kg)
+            * feet -> meters (m)
+        * **Temperature:** Convert Fahrenheit (°F) to Celsius (°C).
+    3.  **Output ONLY the final Spanish text.** Do not include original values, explanations, or commentary.
+
     Example:
-    Input: "Hello world"
-    Output: Hola mundo
-    
-    Remember: ALWAYS Spanish, ONLY the translation.""",
-    description="Performs initial translation from English to Spanish.",
+    Input: "The package weighs 10 pounds and must be delivered 50 miles by 12/31/2024."
+    Output: "El paquete pesa 4.54 kg y debe ser entregado a 80.47 km para el 31/12/2024."
+
+    Remember: ALWAYS Spanish, ONLY the localized translation.""",
+    description="Performs initial translation from English to Spanish, including localization of units and formats.",
     output_key=STATE_CURRENT_TRANSLATION
 )
 
@@ -89,12 +92,14 @@ translation_critic_agent = LlmAgent(
     1. Accuracy - Is the English meaning preserved in Spanish?
     2. Grammar - Is the Spanish grammatically correct?
     3. Fluency - Does it sound natural in Spanish?
+    4. Localization - Have dates (to DD/MM/YYYY) in applicable countries, measurements (miles to km, pounds to kg) in countries with metric system, and temperatures (Fahrenheit to Celsius) been correctly converted for a Spanish-speaking audience?
 
-    IF there are issues:
-    - Output specific corrections (e.g., "Change 'palabra' to 'término'")
+
+    IF there are issues (translation or conversion errors):
+    - Output specific corrections (e.g., "Change '160 km' to '160.93 km'" or "Date format should be DD/MM/YYYY")
     - Be concise and specific
     
-    IF the Spanish translation is good:
+    IF the Spanish translation and all conversions are good:
     - Output EXACTLY: {COMPLETION_PHRASE}
     - Nothing else""",
     description="Reviews Spanish translation quality.",
