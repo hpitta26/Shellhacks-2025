@@ -43,7 +43,13 @@ session = session_service.create_session(
     }
 )
 
-# --- Tool Definition ---
+# --- Tool Definitions ---
+def set_target_language(tool_context: ToolContext, language: str):
+    """Sets the target language for translation."""
+    print(f"  [Tool Call] Setting target language to: {language}")
+    tool_context.session.state["target_language"] = language
+    return {"status": "success", "language_set": language}
+
 def exit_translation_loop(tool_context: ToolContext):
     """Call this function ONLY when the translation critique indicates no further improvements are needed."""
     print(f"  [Tool Call] exit_translation_loop triggered by {tool_context.agent_name}")
@@ -52,61 +58,73 @@ def exit_translation_loop(tool_context: ToolContext):
 
 # --- Agent Definitions ---
 
-# STEP 1: Initial Translator Agent
+# STEP 1: Initial Translator Agent with language detection
 initial_translator_agent = LlmAgent(
     name="InitialTranslatorAgent",
     model=GEMINI_MODEL,
-    include_contents='default',  # Use 'default' instead of 'all'
-    instruction="""You are a professional translator. 
+    include_contents='default',
+    instruction="""You are a professional translator with language detection capabilities.
 
-    CRITICAL INSTRUCTION: You must ALWAYS translate to Spanish. Do not translate to any other language unless explicitly instructed.
+    Your task:
+    1. First, check if the user specified a target language in their message
+       - Look for phrases like "to French", "in German", "to Japanese", etc.
+       - If a language is specified, call set_target_language with that language
+       - If no language is specified, call set_target_language with "Spanish" (default)
     
-    When you receive English text:
-    1. Translate it directly to Spanish
-    2. Output ONLY the Spanish translation
-    3. Do NOT add any explanations, quotes, or commentary
-    4. Do NOT translate to French, German, or any other language
+    2. Then translate the English text to the target language you just set
+       - Output ONLY the translated text
+       - No explanations, quotes, or commentary
     
-    Example:
-    Input: "Hello world"
-    Output: Hola mundo
+    Common language patterns to detect:
+    - "translate to [language]"
+    - "in [language]"
+    - "[text] to [language]"
+    - "give me the [language] translation"
     
-    Remember: ALWAYS Spanish, ONLY the translation.""",
-    description="Performs initial translation from English to Spanish.",
+    Example workflow:
+    User: "Hello world to French"
+    You: 1) Call set_target_language("French")
+         2) Output: Bonjour le monde
+    
+    User: "Hello world"  (no language specified)
+    You: 1) Call set_target_language("Spanish")
+         2) Output: Hola mundo""",
+    description="Detects target language and performs initial translation.",
+    tools=[set_target_language],
     output_key=STATE_CURRENT_TRANSLATION
 )
 
-# STEP 2a: Translation Critic Agent
+# STEP 2a: Translation Critic Agent (now language-aware)
 translation_critic_agent = LlmAgent(
     name="TranslationCriticAgent",
     model=GEMINI_MODEL,
     include_contents='default',
-    instruction=f"""You are a Spanish translation quality reviewer.
+    instruction=f"""You are a multilingual translation quality reviewer.
 
-    Review the Spanish translation that was just produced.
+    Review the translation that was just produced. The target language was set in the previous step.
     
     Evaluate for:
-    1. Accuracy - Is the English meaning preserved in Spanish?
-    2. Grammar - Is the Spanish grammatically correct?
-    3. Fluency - Does it sound natural in Spanish?
+    1. Accuracy - Is the meaning preserved in the target language?
+    2. Grammar - Is it grammatically correct in the target language?
+    3. Fluency - Does it sound natural in the target language?
 
     IF there are issues:
-    - Output specific corrections (e.g., "Change 'palabra' to 'término'")
+    - Output specific corrections relevant to the target language
     - Be concise and specific
     
-    IF the Spanish translation is good:
+    IF the translation is good:
     - Output EXACTLY: {COMPLETION_PHRASE}
     - Nothing else""",
-    description="Reviews Spanish translation quality.",
+    description="Reviews translation quality for any language.",
     output_key=STATE_TRANSLATION_CRITIQUE
 )
 
-# STEP 2b: Translation Refiner Agent
+# STEP 2b: Translation Refiner Agent (language-aware)
 translation_refiner_agent = LlmAgent(
     name="TranslationRefinerAgent",
     model=GEMINI_MODEL,
     include_contents='default',
-    instruction=f"""You are a Spanish translation refiner.
+    instruction=f"""You are a multilingual translation refiner.
 
     Review the critique provided.
     
@@ -115,10 +133,11 @@ translation_refiner_agent = LlmAgent(
     - Do not output any text
     
     ELSE:
-    - Apply the suggested corrections to improve the Spanish translation
-    - Output ONLY the refined Spanish translation text
+    - Apply the suggested corrections to improve the translation
+    - Maintain the same target language that was used initially
+    - Output ONLY the refined translation text
     - No explanations""",
-    description="Refines Spanish translation based on critique or exits.",
+    description="Refines translation based on critique or exits.",
     tools=[exit_translation_loop],
     output_key=STATE_CURRENT_TRANSLATION
 )
@@ -140,7 +159,7 @@ root_agent = SequentialAgent(
         initial_translator_agent,
         translation_refinement_loop
     ],
-    description="Translates English text to Spanish with iterative quality refinement."
+    description="Translates English text to any language (default Spanish) with iterative quality refinement."
 )
 
 # Make agent available for ADK discovery
