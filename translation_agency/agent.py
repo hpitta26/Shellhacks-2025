@@ -43,6 +43,7 @@ session = session_service.create_session(
     }
 )
 
+
 # --- Tool Definitions ---
 def set_target_language(tool_context: ToolContext, language: str):
     """Sets the target language for translation."""
@@ -51,17 +52,20 @@ def set_target_language(tool_context: ToolContext, language: str):
     tool_context.state["target_language"] = language
     return {"status": "success", "language_set": language}
 
+
 def get_target_language(tool_context: ToolContext):
     """Gets the current target language."""
     # Access state through tool_context.state
     lang = tool_context.state.get("target_language", "Spanish")
     return {"current_language": lang}
 
+
 def exit_translation_loop(tool_context: ToolContext):
     """Call this function ONLY when the translation critique indicates no further improvements are needed."""
     print(f"  [Tool Call] exit_translation_loop triggered by {tool_context.agent_name}")
     tool_context.actions.escalate = True
     return {}
+
 
 # --- Agent Definitions ---
 
@@ -70,19 +74,22 @@ initial_translator_agent = LlmAgent(
     name="InitialTranslatorAgent",
     model=GEMINI_MODEL,
     include_contents='default',
-    instruction="""You are a professional translator with language detection capabilities.
+    instruction="""You are a professional translator with language detection and measurement localizing capabilities.
 
-    Your task:
-    1. Look at the user's most recent message ONLY (ignore previous messages)
-    2. Check if it contains a language directive like "to French", "in German", etc.
-    3. If a language is specified:
-       - Call set_target_language with that language
-       - Then translate to that language
-    4. If no language is specified:
-       - Call get_target_language to check what language is currently set
-       - Use that language for translation
-    5. Translate the user's text to the target language
-    6. Output ONLY the translated text - no explanations, no context
+    Your task is a two-step process:
+    1.  **Detect Language:** Check the user's last most sent message for a language directive (e.g., "to French", "in German").
+        - If a language is specified, call `set_target_language` with that language.
+        - If no language is specified, call `get_target_language` to use the currently set language.
+
+    2.  **Translate and Localize:** After determining the language, translate the user's text. You MUST also convert formats and units for a non-US audience.
+        * **Dates:** Convert `MM/DD/YYYY` to `DD/MM/YYYY`.
+        * **Measurements:** Convert imperial units to metric.
+            * miles -> kilometers (km)
+            * pounds (lbs) -> kilograms (kg)
+            * feet -> meters (m)
+        * **Temperature:** Convert Fahrenheit (°F) to Celsius (°C).
+
+    3.  **Output:** Output ONLY the final, translated, and localized text. Do not include original values, explanations, or commentary.
 
     Examples:
     User: "Hello" → Check language, translate to current/default, output: "Hola"
@@ -91,6 +98,12 @@ initial_translator_agent = LlmAgent(
     description="Detects target language and performs initial translation.",
     tools=[set_target_language, get_target_language],
     output_key=STATE_CURRENT_TRANSLATION
+
+    **Example Workflow:**
+    User: "The package weighs 10 pounds and must be delivered 50 miles by 12/31/2024 to French"
+    You:
+    1) Call set_target_language("French")
+    2) Output: "Le colis pèse 4.54 kg et doit être livré à 80.47 km d'ici le 31/12/2024."
 """
 )
 # STEP 2a: Translation Critic Agent
@@ -102,15 +115,15 @@ translation_critic_agent = LlmAgent(
 
     Look at the current translation that was just produced.
     Based on the conversation context, determine what language it's supposed to be in.
-    
+
     Evaluate the translation for:
     1. Grammar - Is it grammatically correct in that language?
     2. Fluency - Does it sound natural in that language?
-    
+
     IF there are issues:
     - Output specific corrections
     - Be concise and specific
-    
+
     IF the translation looks good:
     - Output EXACTLY: {COMPLETION_PHRASE}
     - Nothing else""",
@@ -126,11 +139,11 @@ translation_refiner_agent = LlmAgent(
     instruction=f"""You are a multilingual translation refiner.
 
     Look at the critique that was just provided.
-    
+
     IF the critique says EXACTLY "{COMPLETION_PHRASE}":
     - Call exit_translation_loop function
     - Do not output any text
-    
+
     ELSE:
     - Apply the suggested corrections
     - Output ONLY the improved translation
