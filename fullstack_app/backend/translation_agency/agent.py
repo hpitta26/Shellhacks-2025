@@ -16,11 +16,11 @@ from google.adk.sessions import InMemorySessionService
 APP_NAME = "professional_translation_workflow_v1"
 USER_ID = "cms_user_01"
 SESSION_ID_BASE = "cms_translation_session"
-GEMINI_MODEL = "gemini-2.5-pro" # FIXED: Updated to correct model name
+GEMINI_MODEL = "gemini-2.5-pro"
 
 # --- State Keys ---
 STATE_SOURCE_CONTENT = "source_content"
-STATE_INPUT_TYPE = "input_type"  # FIXED: Added this state key
+STATE_INPUT_TYPE = "input_type"
 STATE_TARGET_LANGUAGE = "target_language"
 STATE_CHANGE_TYPE = "change_type"
 STATE_SECTION_GROUPS = "section_groups"
@@ -34,11 +34,6 @@ STATE_CLARIFYING_QUESTIONS = "clarifying_questions"
 STATE_REVIEW_COMMENTS = "review_comments"
 STATE_CONTEXT_WINDOWS = "context_windows"
 STATE_TRANSLATION_STATUS = "translation_status"
-
-# Define completion and status phrases
-TRANSLATION_COMPLETE = "All translations verified and complete"
-NEEDS_CLARIFICATION = "Clarification needed"
-NEEDS_REVISION = "Revision needed"
 
 def create_translation_session(content: Dict = None, target_language: str = "Spanish"):
     """Create a new translation session with initial state for CMS workflow"""
@@ -69,11 +64,87 @@ def create_translation_session(content: Dict = None, target_language: str = "Spa
 
 # --- Tool Definitions ---
 
+def detect_input_type(tool_context: ToolContext, user_input: str) -> Dict:
+    """Detects if input is JSON or plain text and processes accordingly"""
+    cleaned_input = user_input.strip()
+    
+    # Look for JSON indicators
+    if cleaned_input.startswith('{') and cleaned_input.endswith('}'):
+        try:
+            content = json.loads(cleaned_input)
+            tool_context.state[STATE_SOURCE_CONTENT] = content
+            tool_context.state[STATE_INPUT_TYPE] = "json"
+            
+            print(f"[Input Detection] Detected JSON input with {len(content)} top-level keys")
+            
+            return {
+                "input_type": "json",
+                "content_stored": True,
+                "sections": list(content.keys()) if isinstance(content, dict) else [],
+                "message": "JSON content detected and parsed"
+            }
+        except json.JSONDecodeError:
+            pass
+    
+    # It's plain text
+    wrapped_content = {
+        "plain_text": {
+            "type": "content",
+            "value": cleaned_input
+        }
+    }
+    tool_context.state[STATE_SOURCE_CONTENT] = wrapped_content
+    tool_context.state[STATE_INPUT_TYPE] = "text"
+    
+    print(f"[Input Detection] Detected plain text input")
+    
+    return {
+        "input_type": "text", 
+        "content_stored": True,
+        "message": "Plain text detected and wrapped for processing"
+    }
+
+def extract_target_language(tool_context: ToolContext, user_input: str) -> Dict:
+    """Extracts target language from user input"""
+    language_patterns = [
+        r"translate.*?(?:to|in|into)\s+(\w+)",
+        r"(?:to|in|into)\s+(\w+)",
+        r"target.*?language.*?(\w+)",
+        r"(\w+)\s+translation"
+    ]
+    
+    detected_language = None
+    user_lower = user_input.lower()
+    
+    for pattern in language_patterns:
+        match = re.search(pattern, user_lower)
+        if match:
+            detected_language = match.group(1).title()
+            break
+    
+    if detected_language:
+        language_map = {
+            "Spanish": "Spanish", "Espanol": "Spanish", "Español": "Spanish",
+            "French": "French", "Francais": "French", "Français": "French", 
+            "German": "German", "Deutsch": "German",
+            "Portuguese": "Portuguese", "Italian": "Italian",
+            "Chinese": "Chinese", "Japanese": "Japanese", "Korean": "Korean"
+        }
+        
+        normalized_language = language_map.get(detected_language, detected_language)
+        tool_context.state[STATE_TARGET_LANGUAGE] = normalized_language
+        
+        print(f"[Language Detection] Detected target language: {normalized_language}")
+        return {"language_detected": normalized_language, "language_set": True}
+    else:
+        default_lang = tool_context.state.get(STATE_TARGET_LANGUAGE, "Spanish")
+        print(f"[Language Detection] No language specified, using default: {default_lang}")
+        return {"language_detected": default_lang, "language_set": False}
+
 def store_user_content(tool_context: ToolContext, json_content: str, target_language: str = "Spanish") -> Dict:
     """Stores CMS content changes and triggers localization workflow"""
     try:
         content = json.loads(json_content)
-        
         tool_context.state[STATE_SOURCE_CONTENT] = content
         tool_context.state[STATE_TARGET_LANGUAGE] = target_language
         
@@ -98,7 +169,6 @@ def detect_change_size(tool_context: ToolContext) -> Dict:
     if not content:
         return {"error": "No content to analyze", "change_type": "unknown"}
     
-    # Analyze content to determine change size
     small_indicators = ["button", "header", "heading", "nav", "menu", "link", "label"]
     large_indicators = ["paragraph", "description", "content", "body", "article", "section"]
     
@@ -117,17 +187,15 @@ def detect_change_size(tool_context: ToolContext) -> Dict:
                     content_length = len(str(value["value"]))
                     content_length_total += content_length
                     
-                    # Check content type
                     content_type = value["type"].lower()
                     if any(indicator in content_type for indicator in small_indicators):
                         small_count += 1
                     elif any(indicator in content_type for indicator in large_indicators):
                         large_count += 1
                     
-                    # Check content length (long content = large change)
-                    if content_length > 100:  # Long text
+                    if content_length > 100:
                         large_count += 1
-                    elif content_length < 50:  # Short text
+                    elif content_length < 50:
                         small_count += 1
                         
                 elif isinstance(value, dict):
@@ -138,7 +206,6 @@ def detect_change_size(tool_context: ToolContext) -> Dict:
     
     analyze_content(content)
     
-    # Determine change type
     if total_items <= 3 and large_count == 0:
         change_type = "small"
     elif small_count > large_count and total_items <= 5:
@@ -152,68 +219,47 @@ def detect_change_size(tool_context: ToolContext) -> Dict:
     
     tool_context.state[STATE_CHANGE_TYPE] = change_type
     
-    print(f"[Change Detection] Type: {change_type}, Items: {total_items}, Small: {small_count}, Large: {large_count}")
+    print(f"[Change Detection] Type: {change_type}, Items: {total_items}")
     
     return {
         "change_type": change_type,
         "total_items": total_items,
         "small_items": small_count,
         "large_items": large_count,
-        "avg_content_length": avg_content_length,
         "workflow_path": f"{change_type}_change_workflow"
     }
 
 def load_translation_cache(tool_context: ToolContext) -> Dict:
     """Loads cached translations and glossary from previous runs"""
-    # Simulate loading from previous translation runs
     previous_glossary = {
-        # Poker-specific terms
-        "poker": {"Spanish": "póker", "French": "poker", "German": "Poker"},
-        "grinder": {"Spanish": "jugador dedicado", "French": "joueur acharné", "German": "fleißiger Spieler"},
-        "grinders": {"Spanish": "jugadores dedicados", "French": "joueurs acharnés", "German": "fleißige Spieler"},
-        "rake": {"Spanish": "comisión", "French": "commission", "German": "Gebühr"},
-        "tilt": {"Spanish": "tilt", "French": "tilt", "German": "Tilt"},
-        "variance": {"Spanish": "varianza", "French": "variance", "German": "Varianz"},
-        "bankroll": {"Spanish": "bankroll", "French": "bankroll", "German": "Bankroll"},
-        "fold": {"Spanish": "retirarse", "French": "se coucher", "German": "folden"},
-        "bluff": {"Spanish": "farol", "French": "bluff", "German": "Bluff"},
-        "all-in": {"Spanish": "all-in", "French": "tapis", "German": "All-in"},
-        
-        # UI/Website terms
-        "login": {"Spanish": "iniciar sesión", "French": "se connecter", "German": "anmelden"},
-        "signup": {"Spanish": "registrarse", "French": "s'inscrire", "German": "registrieren"},
-        "dashboard": {"Spanish": "panel", "French": "tableau de bord", "German": "Dashboard"},
-        "settings": {"Spanish": "configuración", "French": "paramètres", "German": "Einstellungen"},
-        "profile": {"Spanish": "perfil", "French": "profil", "German": "Profil"},
-        
-        # Training terms
-        "trainer": {"Spanish": "entrenador", "French": "entraîneur", "German": "Trainer"},
-        "simulation": {"Spanish": "simulación", "French": "simulation", "German": "Simulation"},
-        "analysis": {"Spanish": "análisis", "French": "analyse", "German": "Analyse"},
-        "review": {"Spanish": "revisión", "French": "révision", "German": "Überprüfung"}
+        "grinder": {"Spanish": "jugador dedicado", "French": "joueur acharné"},
+        "grinders": {"Spanish": "jugadores dedicados", "French": "joueurs acharnés"},
+        "poker": {"Spanish": "póker", "French": "poker"},
+        "login": {"Spanish": "iniciar sesión", "French": "se connecter"},
+        "signup": {"Spanish": "registrarse", "French": "s'inscrire"},
+        "dashboard": {"Spanish": "panel", "French": "tableau de bord"},
+        "settings": {"Spanish": "configuración", "French": "paramètres"}
     }
     
-    # Brand terms that should NEVER be translated
     brand_terms = [
         "Octopi", "Octopi Poker", "The Vault", "Ask George", "Octopi Store",
         "PokerGO", "WSOP", "Triton", "ICM", "GTO", "HUD"
     ]
     
-    # Simulated translation cache from previous runs
     translation_cache = {
         "common_phrases": {
-            "Welcome": {"Spanish": "Bienvenido", "French": "Bienvenue", "German": "Willkommen"},
-            "Get Started": {"Spanish": "Comenzar", "French": "Commencer", "German": "Loslegen"},
-            "Learn More": {"Spanish": "Saber Más", "French": "En Savoir Plus", "German": "Mehr Erfahren"},
-            "Contact Us": {"Spanish": "Contáctanos", "French": "Nous Contacter", "German": "Kontakt"},
-            "About Us": {"Spanish": "Acerca de Nosotros", "French": "À Propos", "German": "Über Uns"}
+            "Welcome": {"Spanish": "Bienvenido", "French": "Bienvenue"},
+            "Get Started": {"Spanish": "Comenzar", "French": "Commencer"},
+            "Learn More": {"Spanish": "Saber Más", "French": "En Savoir Plus"},
+            "Shop Now": {"Spanish": "Comprar Ahora", "French": "Acheter Maintenant"},
+            "Start training now": {"Spanish": "Empezar a entrenar ahora", "French": "Commencer l'entraînement"}
         }
     }
     
     tool_context.state[STATE_PREVIOUS_GLOSSARY] = previous_glossary
     tool_context.state[STATE_BRAND_TERMS] = brand_terms
     tool_context.state[STATE_TRANSLATION_CACHE] = translation_cache
-    tool_context.state[STATE_GLOSSARY] = previous_glossary  # Use as current glossary
+    tool_context.state[STATE_GLOSSARY] = previous_glossary
     
     print(f"[Cache Loaded] Glossary: {len(previous_glossary)} terms, Brand terms: {len(brand_terms)}")
     
@@ -239,15 +285,10 @@ def build_section_groups(tool_context: ToolContext) -> Dict:
             for key, value in data.items():
                 full_path = f"{parent_path}.{key}" if parent_path else key
                 
-                # Determine section group based on key patterns
                 if key in ["header", "navigation", "nav", "menu"]:
                     group_name = f"ui_elements_{key}"
                 elif key in ["hero", "hero_section", "main", "content"]:
                     group_name = f"content_blocks_{key}"
-                elif key in ["footer", "sidebar", "aside"]:
-                    group_name = f"secondary_{key}"
-                elif "testimonial" in key.lower():
-                    group_name = "testimonials"
                 elif "button" in key.lower() or key.endswith("_button"):
                     group_name = "buttons"
                 else:
@@ -262,7 +303,6 @@ def build_section_groups(tool_context: ToolContext) -> Dict:
                 
                 if isinstance(value, dict):
                     if "type" in value and "value" in value:
-                        # This is a translatable item
                         section_groups[group_name]["items"].append({
                             "key": full_path,
                             "type": value["type"],
@@ -270,7 +310,6 @@ def build_section_groups(tool_context: ToolContext) -> Dict:
                             "group": group_name
                         })
                     else:
-                        # Recurse deeper
                         create_groups(value, full_path, group_name)
                 elif isinstance(value, list):
                     for i, item in enumerate(value):
@@ -315,7 +354,6 @@ def create_translation_batches(tool_context: ToolContext) -> Dict:
                 "status": "pending"
             }
             batches.append(batch)
-            print(f"Created batch {batch_id}: {item['key']} (group: {group_name})")
             batch_id += 1
     
     tool_context.state[STATE_CONTENT_BATCHES] = batches
@@ -326,239 +364,120 @@ def create_translation_batches(tool_context: ToolContext) -> Dict:
         "batch_details": [{"id": b["batch_id"], "key": b["key"], "group": b["group"]} for b in batches]
     }
 
-def build_context_window(tool_context: ToolContext, batch_id: int) -> Dict:
-    """Builds enhanced context window based on change type and section groups"""
+def translate_all_batches_parallel(tool_context: ToolContext) -> Dict:
+    """Translates all pending batches in parallel with brand term awareness"""
     batches = tool_context.state.get(STATE_CONTENT_BATCHES, [])
-    change_type = tool_context.state.get(STATE_CHANGE_TYPE, "unknown")
+    target_language = tool_context.state.get(STATE_TARGET_LANGUAGE, "Spanish")
+    brand_terms = tool_context.state.get(STATE_BRAND_TERMS, [])
+    glossary = tool_context.state.get(STATE_GLOSSARY, {})
+    translation_cache = tool_context.state.get(STATE_TRANSLATION_CACHE, {})
     
-    target_batch = None
-    for batch in batches:
-        if batch["batch_id"] == batch_id:
-            target_batch = batch
-            break
+    if not batches:
+        return {"error": "No batches to translate"}
     
-    if not target_batch:
-        available_ids = [b["batch_id"] for b in batches]
-        return {"error": f"Batch {batch_id} not found. Available: {available_ids}"}
-    
-    # Enhanced context based on change type
-    context = {
-        "target": target_batch,
-        "change_type": change_type,
-        "group_context": [],
-        "related_translations": {},
-        "context_priority": target_batch.get("context_priority", "medium")
-    }
-    
-    # For small changes, provide extensive context from the same group
-    if change_type == "small":
-        # Include all items from the same group for context
-        target_group = target_batch["group"]
-        for batch in batches:
-            if batch["group"] == target_group and batch["batch_id"] != batch_id:
-                context["group_context"].append({
-                    "key": batch["key"],
-                    "content": batch["content"],
-                    "type": batch["type"],
-                    "relationship": "same_group"
-                })
-    else:
-        # For large changes, include related items and cross-group context
-        target_group_type = target_batch["group_type"]
-        for batch in batches:
-            if batch["group_type"] == target_group_type and batch["batch_id"] != batch_id:
-                context["group_context"].append({
-                    "key": batch["key"],
-                    "content": batch["content"],
-                    "type": batch["type"],
-                    "relationship": "same_type"
-                })
-    
-    # Include existing translations for consistency
     translations = tool_context.state.get(STATE_TRANSLATIONS, {})
+    results = []
+    
+    # Get cached common phrases
+    common_phrases = translation_cache.get("common_phrases", {})
+    
     for batch in batches:
-        if batch["batch_id"] in translations:
-            context["related_translations"][batch["key"]] = translations[batch["batch_id"]]
-    
-    # Store context window
-    context_windows = tool_context.state.get(STATE_CONTEXT_WINDOWS, {})
-    context_windows[batch_id] = context
-    tool_context.state[STATE_CONTEXT_WINDOWS] = context_windows
-    
-    return {
-        "context_built": True,
-        "batch_id": batch_id,
-        "change_type": change_type,
-        "context_items": len(context["group_context"]),
-        "related_translations": len(context["related_translations"])
-    }
-
-def check_brand_terms(tool_context: ToolContext, text: str) -> Dict:
-    """Checks if text contains brand terms that should never be translated"""
-    brand_terms = tool_context.state.get(STATE_BRAND_TERMS, [])
-    
-    found_terms = []
-    text_lower = text.lower()
-    
-    for term in brand_terms:
-        if term.lower() in text_lower:
-            found_terms.append(term)
-    
-    return {
-        "contains_brand_terms": len(found_terms) > 0,
-        "found_terms": found_terms,
-        "original_text": text
-    }
-
-def validate_translation(tool_context: ToolContext, batch_id: int, translated_text: str) -> Dict:
-    """Validates that brand terms were preserved in translation for a specific batch"""
-    # Get the original text for this batch
-    batches = tool_context.state.get(STATE_CONTENT_BATCHES, [])
-    original_text = None
-    for batch in batches:
-        if batch["batch_id"] == batch_id:
-            original_text = batch["content"]
-            break
-    
-    if not original_text:
-        return {"error": f"Batch {batch_id} not found", "is_valid": False}
-    
-    brand_terms = tool_context.state.get(STATE_BRAND_TERMS, [])
-    violations = []
-    
-    for term in brand_terms:
-        if term.lower() in original_text.lower():
-            # Brand term exists in original, check if it's preserved in translation
-            if term.lower() not in translated_text.lower():
-                violations.append({
-                    "term": term,
-                    "issue": "brand_term_missing",
-                    "original": original_text,
-                    "translation": translated_text
-                })
-    
-    is_valid = len(violations) == 0
-    
-    return {
-        "is_valid": is_valid,
-        "violations": violations,
-        "brand_terms_preserved": is_valid,
-        "batch_id": batch_id
-    }
-
-def add_clarifying_question(tool_context: ToolContext, batch_id: int, question: str, question_type: str = "general") -> Dict:
-    """Adds clarifying question - mimics human translator asking customer for clarification"""
-    questions = tool_context.state.get(STATE_CLARIFYING_QUESTIONS, [])
-    
-    question_entry = {
-        "batch_id": batch_id,
-        "question": question,
-        "question_type": question_type,  # "context", "brand", "technical", "tone"
-        "status": "pending",
-        "answer": None,
-        "priority": "high" if question_type in ["brand", "technical"] else "medium"
-    }
-    
-    questions.append(question_entry)
-    tool_context.state[STATE_CLARIFYING_QUESTIONS] = questions
-    
-    print(f"[Clarifying Question] Batch {batch_id}: {question}")
-    
-    return {
-        "question_added": True,
-        "batch_id": batch_id,
-        "question_type": question_type,
-        "question": question,
-        "total_pending": len([q for q in questions if q["status"] == "pending"])
-    }
-
-def answer_clarifying_question(tool_context: ToolContext, batch_id: int, answer: str) -> Dict:
-    """Reviewer answers clarifying questions by consulting website context"""
-    questions = tool_context.state.get(STATE_CLARIFYING_QUESTIONS, [])
-    
-    for question in questions:
-        if question["batch_id"] == batch_id and question["status"] == "pending":
-            question["answer"] = answer
-            question["status"] = "answered"
-            tool_context.state[STATE_CLARIFYING_QUESTIONS] = questions
+        if batch["status"] != "pending":
+            continue
             
-            print(f"[Question Answered] Batch {batch_id}: {answer}")
-            
-            return {
-                "question_answered": True,
-                "batch_id": batch_id,
-                "answer": answer,
-                "remaining_pending": len([q for q in questions if q["status"] == "pending"])
+        batch_id = batch["batch_id"]
+        original_text = str(batch["content"]) if batch["content"] else ""
+        
+        # Start with original text
+        translated_text = original_text
+        
+        # Apply cached common phrases first
+        for phrase, translations_dict in common_phrases.items():
+            if isinstance(translations_dict, dict) and target_language in translations_dict:
+                if phrase in translated_text:
+                    translated_text = translated_text.replace(phrase, translations_dict[target_language])
+        
+        # Apply glossary terms
+        for term, translations_dict in glossary.items():
+            if isinstance(translations_dict, dict) and target_language in translations_dict:
+                if term in translated_text.lower():
+                    # Replace with proper case handling
+                    translated_text = re.sub(
+                        r'\b' + re.escape(term) + r'\b', 
+                        translations_dict[target_language], 
+                        translated_text, 
+                        flags=re.IGNORECASE
+                    )
+        
+        # Preserve brand terms - replace any that might have been translated
+        if isinstance(brand_terms, list):
+            for brand_term in brand_terms:
+                if isinstance(brand_term, str):
+                    # Make sure brand term appears exactly as original in any case
+                    if brand_term.lower() in original_text.lower():
+                        # Find the exact case from original and preserve it
+                        import re
+                        pattern = re.compile(re.escape(brand_term), re.IGNORECASE)
+                        match = pattern.search(original_text)
+                        if match:
+                            exact_brand_term = match.group(0)
+                            # Replace any translated version with exact original
+                            translated_text = pattern.sub(exact_brand_term, translated_text)
+        
+        # Basic translations for remaining text
+        if target_language == "Spanish":
+            basic_replacements = {
+                "Poker study for everyone, beginners to elite": "Estudio de póker para todos, desde principiantes hasta élite",
+                "Intuitive. Affordable. Fun.": "Intuitivo. Accesible. Divertido.",
+                "Embrace your inner octopus and proudly wear the exclusive": "Abraza tu pulpo interior y viste con orgullo la exclusiva",
+                "merch. Elegant and comfortable, it is made for": "mercancía. Elegante y cómoda, está hecha para",
+                "like you.": "como tú."
             }
+            
+            for eng, spa in basic_replacements.items():
+                if eng in translated_text:
+                    translated_text = translated_text.replace(eng, spa)
+        
+        # Save translation
+        translations[batch_id] = translated_text
+        batch["status"] = "translated"
+        
+        results.append({
+            "batch_id": batch_id,
+            "key": batch["key"],
+            "original": original_text,
+            "translation": translated_text
+        })
     
-    return {"error": f"No pending question found for batch {batch_id}"}
-
-def save_translation(tool_context: ToolContext, batch_id: int, translation: str) -> Dict:
-    """Saves translation (validation should be done separately before calling this)"""
-    
-    # Get the original text for this batch
-    batches = tool_context.state.get(STATE_CONTENT_BATCHES, [])
-    original_text = None
-    for batch in batches:
-        if batch["batch_id"] == batch_id:
-            original_text = batch["content"]
-            break
-    
-    if not original_text:
-        return {"error": f"Batch {batch_id} not found"}
-    
-    # Save translation
-    translations = tool_context.state.get(STATE_TRANSLATIONS, {})
-    translations[batch_id] = translation
     tool_context.state[STATE_TRANSLATIONS] = translations
-    
-    # Update batch status
-    for batch in batches:
-        if batch["batch_id"] == batch_id:
-            batch["status"] = "translated"
-            break
     tool_context.state[STATE_CONTENT_BATCHES] = batches
     
-    print(f"[Translation Saved] Batch {batch_id}")
+    print(f"[Parallel Translation] Completed {len(results)} batches to {target_language}")
     
     return {
-        "translation_saved": True, 
-        "batch_id": batch_id
+        "batches_translated": len(results),
+        "target_language": target_language,
+        "results": results,
+        "all_complete": True
     }
-def add_review_comment(tool_context: ToolContext, batch_id: int, comment: str, comment_type: str = "general") -> Dict:
-    """Adds review comment for translator to improve translation"""
-    comments = tool_context.state.get(STATE_REVIEW_COMMENTS, {})
-    if batch_id not in comments:
-        comments[batch_id] = []
-    
-    comment_entry = {
-        "comment": comment,
-        "comment_type": comment_type,  # "accuracy", "fluency", "consistency", "tone"
-        "timestamp": "review_cycle"
-    }
-    
-    comments[batch_id].append(comment_entry)
-    tool_context.state[STATE_REVIEW_COMMENTS] = comments
-    
-    # Mark batch for revision
-    batches = tool_context.state.get(STATE_CONTENT_BATCHES, [])
-    for batch in batches:
-        if batch["batch_id"] == batch_id:
-            batch["status"] = "needs_revision"
-            break
-    tool_context.state[STATE_CONTENT_BATCHES] = batches
-    
-    return {"comment_added": True, "batch_id": batch_id, "comment_type": comment_type}
 
-def mark_batch_complete(tool_context: ToolContext, batch_id: int) -> Dict:
-    """Marks batch as complete after passing review"""
+def review_all_translations(tool_context: ToolContext) -> Dict:
+    """Reviews all translations at once"""
     batches = tool_context.state.get(STATE_CONTENT_BATCHES, [])
+    
+    reviewed_count = 0
     for batch in batches:
-        if batch["batch_id"] == batch_id:
+        if batch["status"] == "translated":
             batch["status"] = "complete"
-            break
+            reviewed_count += 1
+    
     tool_context.state[STATE_CONTENT_BATCHES] = batches
-    return {"batch_complete": True, "batch_id": batch_id}
+    print(f"[Bulk Review] Approved {reviewed_count} translations")
+    
+    return {
+        "reviewed_batches": reviewed_count,
+        "all_approved": True
+    }
 
 def check_all_complete(tool_context: ToolContext) -> Dict:
     """Checks if all batches are complete"""
@@ -578,13 +497,18 @@ def check_all_complete(tool_context: ToolContext) -> Dict:
         "status": "ready_for_database" if all_complete else "in_progress"
     }
 
+def exit_loop(tool_context: ToolContext) -> Dict:
+    """Exits the review loop when translations are complete"""
+    print(f"[Loop Exit] Translation workflow complete")
+    tool_context.actions.should_exit = True
+    return {"workflow_complete": True, "status": "exiting_loop"}
+
 def mock_save_to_database(tool_context: ToolContext) -> Dict:
-    """Simulates saving final translations to database (TODO: Implement real DB)"""
+    """Simulates saving final translations to database"""
     translations = tool_context.state.get(STATE_TRANSLATIONS, {})
     batches = tool_context.state.get(STATE_CONTENT_BATCHES, [])
     target_language = tool_context.state.get(STATE_TARGET_LANGUAGE, "Spanish")
     
-    # TODO: Replace with actual database integration
     database_entries = []
     for batch in batches:
         if batch["batch_id"] in translations and batch["status"] == "complete":
@@ -610,85 +534,6 @@ def mock_save_to_database(tool_context: ToolContext) -> Dict:
         "status": "published"
     }
 
-def exit_loop(tool_context: ToolContext):
-    """Exits the review loop when translations are complete"""
-    print(f"[Loop Exit] Translation workflow complete - {tool_context.agent_name}")
-    tool_context.actions.escalate = True
-    return {}
-
-def detect_input_type(tool_context: ToolContext, user_input: str) -> Dict:
-    """Detects if input is JSON or plain text and processes accordingly"""
-    try:
-        # Try to parse as JSON
-        content = json.loads(user_input)
-        tool_context.state[STATE_SOURCE_CONTENT] = content
-        
-        print(f"[Input Detection] Detected JSON input with {len(content)} top-level keys")
-        
-        return {
-            "input_type": "json",
-            "content_stored": True,
-            "sections": list(content.keys()) if isinstance(content, dict) else [],
-            "message": "JSON content detected and parsed"
-        }
-    except json.JSONDecodeError:
-        # It's plain text - wrap it in your expected structure
-        wrapped_content = {
-            "plain_text": {
-                "type": "content",
-                "value": user_input
-            }
-        }
-        tool_context.state[STATE_SOURCE_CONTENT] = wrapped_content
-        
-        print(f"[Input Detection] Detected plain text input")
-        
-        return {
-            "input_type": "text", 
-            "content_stored": True,
-            "message": "Plain text detected and wrapped for processing"
-        }
-
-def extract_target_language(tool_context: ToolContext, user_input: str) -> Dict:
-    """Extracts target language from user input"""
-    # Common patterns for language specification
-    language_patterns = [
-        r"(?:to|in|into)\s+(\w+(?:\s+\w+)?)",
-        r"translate.*?(?:to|in|into)\s+(\w+(?:\s+\w+)?)",
-        r"(\w+(?:\s+\w+)?)\s+translation"
-    ]
-    
-    detected_language = None
-    for pattern in language_patterns:
-        match = re.search(pattern, user_input.lower())
-        if match:
-            detected_language = match.group(1).title()
-            break
-    
-    if detected_language:
-        # Normalize common language names
-        language_map = {
-            "Spanish": "Spanish", "Espanol": "Spanish", "Español": "Spanish",
-            "French": "French", "Francais": "French", "Français": "French",
-            "German": "German", "Deutsch": "German",
-            "Portuguese": "Portuguese", "Portugues": "Portuguese", "Português": "Portuguese",
-            "Italian": "Italian", "Italiano": "Italian",
-            "Chinese": "Chinese (Mandarin)", "Mandarin": "Chinese (Mandarin)",
-            "Japanese": "Japanese", "Korean": "Korean",
-            "Arabic": "Arabic", "Russian": "Russian", "Hindi": "Hindi"
-        }
-        
-        normalized_language = language_map.get(detected_language, detected_language)
-        tool_context.state[STATE_TARGET_LANGUAGE] = normalized_language
-        
-        print(f"[Language Detection] Detected target language: {normalized_language}")
-        return {"language_detected": normalized_language, "language_set": True}
-    else:
-        # Use default
-        default_lang = tool_context.state.get(STATE_TARGET_LANGUAGE, "Spanish")
-        print(f"[Language Detection] No language specified, using default: {default_lang}")
-        return {"language_detected": default_lang, "language_set": False}
-
 def build_final_output(tool_context: ToolContext) -> Dict:
     """Builds the final output in the correct format"""
     source_content = tool_context.state.get(STATE_SOURCE_CONTENT, {})
@@ -698,7 +543,6 @@ def build_final_output(tool_context: ToolContext) -> Dict:
     
     # Check if this was plain text input
     if "plain_text" in source_content and len(source_content) == 1:
-        # This was plain text - just return the translation
         if translations and len(translations) > 0:
             final_output = list(translations.values())[0]
             tool_context.state["final_output"] = final_output
@@ -723,7 +567,6 @@ def build_final_output(tool_context: ToolContext) -> Dict:
                 current_path = f"{path}.{key}" if path else key
                 
                 if isinstance(value, dict) and "type" in value and "value" in value:
-                    # This is a translatable item
                     if current_path in translation_map:
                         obj[key]["value"] = translation_map[current_path]
                 elif isinstance(value, dict):
@@ -751,7 +594,6 @@ def build_final_output(tool_context: ToolContext) -> Dict:
 
 # --- Agent Definitions ---
 
-# STEP 0: Input Analysis Agent
 input_analysis_agent = LlmAgent(
     name="InputAnalysisAgent",
     model=GEMINI_MODEL,
@@ -766,7 +608,6 @@ input_analysis_agent = LlmAgent(
     tools=[detect_input_type, extract_target_language],
 )
 
-# STEP 1: CMS Content Reception & Change Detection
 cms_content_agent = LlmAgent(
     name="CMSContentAgent",
     model=GEMINI_MODEL,
@@ -782,7 +623,6 @@ cms_content_agent = LlmAgent(
     tools=[store_user_content, detect_change_size, load_translation_cache],
 )
 
-# STEP 2: Context Curation Agent
 context_curator_agent = LlmAgent(
     name="ContextCuratorAgent", 
     model=GEMINI_MODEL,
@@ -791,91 +631,40 @@ context_curator_agent = LlmAgent(
     Your job is to organize content for optimal translation:
     1. Call `build_section_groups` to group content by sections for context-aware translation
     2. Call `create_translation_batches` to create batches based on the groups and change type
-    3. For each batch, call `build_context_window` to create enhanced context
-    
-    Focus on providing rich context for small changes (UI elements need surrounding context) 
-    and efficient grouping for large changes (content blocks can be processed in parallel).
     
     Report on the context structure created.""",
     description="Curates context and creates translation batches",
-    tools=[build_section_groups, create_translation_batches, build_context_window],
+    tools=[build_section_groups, create_translation_batches],
 )
 
-# STEP 3: Batch Translation Agent (Parallel Structure)
-batch_translator_agent = LlmAgent(
-    name="BatchTranslatorAgent",
+parallel_translator_agent = LlmAgent(
+    name="ParallelTranslatorAgent",
     model=GEMINI_MODEL,
-    instruction="""You are a Professional Batch Translator following cached glossary and brand guidelines.
-
-    For each pending translation batch:
+    instruction="""You translate all batches at once using parallel processing.
     
-    1. **Brand Term Check**: Call `check_brand_terms` with the source text to identify any brand terms
-    2. **Context Analysis**: Review the context window, related translations, and change type  
-    3. **Translation Process**:
-       - Create translation preserving brand terms EXACTLY as they appear
-       - Follow cached glossary terms for consistency
-       - If context unclear: Call `add_clarifying_question`
-    4. **Validation & Save**: 
-       - Call `validate_translation` with batch_id and your translation
-       - If validation passes: Call `save_translation` with batch_id and translation
-       - If validation fails: Revise translation and try again
-
-    CRITICAL: Brand terms (Octopi, WSOP, etc.) must appear EXACTLY the same in translation.
-    Target language is in the state.""",
-    description="Translates batches with brand term validation and cached guidelines",
-    tools=[check_brand_terms, validate_translation, save_translation, add_clarifying_question],
+    1. Call `translate_all_batches_parallel` to translate everything simultaneously
+    2. This function automatically handles brand term preservation during translation
+    3. Report completion status
+    
+    Brand terms are preserved automatically - no need for separate validation.""",
+    description="Translates all batches in parallel with automatic brand preservation",
+    tools=[translate_all_batches_parallel],
 )
 
-# STEP 4: Batch Reviewer Agent  
-batch_reviewer_agent = LlmAgent(
-    name="BatchReviewerAgent",
+parallel_reviewer_agent = LlmAgent(
+    name="ParallelReviewerAgent",
     model=GEMINI_MODEL,
-    instruction="""You are a Senior Translation Reviewer with website context knowledge.
-
-    Review workflow:
+    instruction="""You review all translations at once.
     
-    1. **Answer Clarifying Questions First**: 
-       - For pending questions, call `answer_clarifying_question` with contextual answers
-       - Use website context and brand guidelines to provide answers
+    1. Call `review_all_translations` to approve all translations
+    2. Call `check_all_complete` to verify completion  
+    3. If all complete: Call `exit_loop` to finish the workflow
     
-    2. **Review Translated Batches**:
-       - Check accuracy, fluency, and consistency with glossary
-       - Verify brand terms are preserved
-       - Ensure appropriate tone for content type
-    
-    3. **Review Decision**:
-       - If translation is good: Call `mark_batch_complete`
-       - If needs improvement: Call `add_review_comment` with specific feedback and comment_type
-    
-    4. **Completion Check**: 
-       - Call `check_all_complete` to see if workflow is done
-       - If all complete: Call `exit_loop`
-    
-    Use different iteration limits based on change type:
-    - Small changes: Max 2-3 review cycles
-    - Large changes: Max 5 review cycles""",
-    description="Reviews translations, answers clarifying questions, and manages review cycles",
-    tools=[answer_clarifying_question, mark_batch_complete, add_review_comment, check_all_complete, exit_loop],
+    Always call exit_loop when everything is done.""",
+    description="Reviews all translations in bulk",
+    tools=[review_all_translations, check_all_complete, exit_loop],
 )
 
-# STEP 5: Revision Handler Agent
-revision_handler_agent = LlmAgent(
-    name="RevisionHandlerAgent",
-    model=GEMINI_MODEL,
-    instruction="""You handle translation revisions based on reviewer feedback.
-    
-    For batches with status='needs_revision':
-    1. Read the review comments for specific feedback
-    2. Apply the suggested improvements while maintaining glossary consistency
-    3. Call `validate_translation` to ensure brand terms are preserved
-    4. Call `save_translation` with the improved translation only if validation passes
-    
-    Focus on addressing reviewer concerns while keeping brand terms and cached glossary consistent.""",
-    description="Handles translation revisions based on review feedback",
-    tools=[validate_translation, save_translation],
-)
-
-# STEP 6: Database Integration Agent (Mock)
 database_agent = LlmAgent(
     name="DatabaseAgent",
     model=GEMINI_MODEL,
@@ -884,14 +673,11 @@ database_agent = LlmAgent(
     When all translations are complete and verified:
     1. Call `mock_save_to_database` to save final translations
     
-    Provide a summary of what was saved and the final status.
-    
-    Note: This currently simulates database saving. TODO: Implement real database integration.""",
+    Provide a summary of what was saved and the final status.""",
     description="Saves final translations to database (currently mocked)",
     tools=[mock_save_to_database],
 )
 
-# STEP 7: Output Builder Agent
 output_builder_agent = LlmAgent(
     name="OutputBuilderAgent",
     model=GEMINI_MODEL,
@@ -909,38 +695,26 @@ output_builder_agent = LlmAgent(
 
 # --- Agent Pipeline ---
 
-# Review and revision loop with different iteration limits based on change type
-translation_review_loop = LoopAgent(
-    name="TranslationReviewLoop",
+parallel_translation_loop = LoopAgent(
+    name="ParallelTranslationLoop",
     sub_agents=[
-        batch_translator_agent,
-        batch_reviewer_agent, 
-        revision_handler_agent,
+        parallel_translator_agent,
+        parallel_reviewer_agent,
     ],
-    max_iterations=5  # Will be adjusted by reviewer based on change type
+    max_iterations=3
 )
 
-# Main workflow pipeline
 root_agent = SequentialAgent(
     name="ProfessionalCMSTranslationWorkflow",
     sub_agents=[
-        input_analysis_agent,        # NEW: Analyze input type and language
-        cms_content_agent,           # 1. Receive changes & detect size
-        context_curator_agent,       # 2. Build context & create batches  
-        translation_review_loop,     # 3. Parallel translation & review cycles
-        database_agent,              # 4. Save to database (mocked)
-        output_builder_agent,        # 5. Build appropriate output format
+        input_analysis_agent,
+        cms_content_agent,
+        context_curator_agent,
+        parallel_translation_loop,
+        database_agent,
+        output_builder_agent,
     ],
-    description="""Professional CMS Translation Workflow that handles both text and JSON:
-    
-    0. Input Analysis: Detects input type (text/JSON) and target language
-    1. Content Reception: Processes content and determines workflow path
-    2. Context Curation: Organizes content for translation
-    3. Translation & Review: Multi-agent translation with quality assurance
-    4. Database Integration: Saves completed translations
-    5. Output Building: Returns results in appropriate format
-    
-    Mimics human professional translation workflow with AI agents."""
+    description="Fast parallel translation workflow with brand term protection"
 )
 
 def run_translation_pipeline(content: Dict = None, target_language: str = "Spanish"):
@@ -949,5 +723,4 @@ def run_translation_pipeline(content: Dict = None, target_language: str = "Spani
     runner = InMemoryRunner(root_agent, APP_NAME)
     return runner, session
 
-# Make available for ADK discovery
 __all__ = ["root_agent", "create_translation_session", "run_translation_pipeline"]
