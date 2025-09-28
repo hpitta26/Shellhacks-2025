@@ -39,34 +39,169 @@ from google.adk.sessions import InMemorySessionService, Session
 from google.genai.types import Part, Content
 import time
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    # Try loading from current directory first, then parent directory
+    if not load_dotenv():
+        load_dotenv("../.env")
+    print("✅ Loaded environment variables from .env file")
+except ImportError:
+    print("⚠️  python-dotenv not installed, using system environment variables only")
+
+# Configure Google AI API (not Vertex AI)
+os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "FALSE"
+
+# Verify API key is set
+if not os.environ.get("GOOGLE_API_KEY"):
+    raise ValueError("GOOGLE_API_KEY environment variable is required. Please set it with: export GOOGLE_API_KEY='your_api_key' or add it to .env file")
+
 # --- Constants ---
 APP_NAME = "language_translator_app_v1"
 USER_ID = "translator_user_01"
 SESSION_ID_BASE = "translation_session"
 GEMINI_MODEL = "gemini-2.0-flash"
 
-# --- State Keys ---
+# --- State Keys for Translation Workflow ---
+# Input/Configuration
 STATE_SOURCE_TEXT = "source_text"
 STATE_TARGET_LANGUAGE = "target_language"
+STATE_BATCH_SIZE = "batch_size"  # small or large changes
+
+# Translation Process
 STATE_CURRENT_TRANSLATION = "current_translation"
-STATE_TRANSLATION_CRITIQUE = "translation_critique"
+STATE_TRANSLATION_BATCHES = "translation_batches"  # List of translation batches
+STATE_GLOSSARY_TERMS = "glossary_terms"  # Brand terms, repeated keywords
+STATE_BRAND_TERMS = "brand_terms"
+
+# Communication between agents (THE KEY PART!)
+STATE_CLARIFYING_QUESTIONS = "clarifying_questions"  # Questions from translator to customer
+STATE_CLARIFYING_ANSWERS = "clarifying_answers"  # Answers from reviewer/context
+STATE_REVIEW_COMMENTS = "review_comments"  # Comments from reviewer to translator
+STATE_BATCH_STATUS = "batch_status"  # complete, needs_review, has_questions
+STATE_TRANSLATION_CRITIQUE = "translation_critique"  # Review/critique of translation
+
+# Final Output
+STATE_FINAL_TRANSLATION = "final_translation"
+STATE_TRANSLATION_COMPLETE = "translation_complete"
 
 # Define the exact phrase the Critic should use to signal completion
 COMPLETION_PHRASE = "Translation is accurate and fluent."
 
-# Initialize session with example text to translate
+# --- Callback Functions for State Monitoring ---
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.agents.readonly_context import ReadonlyContext
+
+def print_state_callback(callback_context: CallbackContext, stage: str):
+    """Print current session state for debugging"""
+    agent_name = callback_context.agent_name
+    print(f"\n{'='*60}")
+    print(f"🔍 STATE MONITOR - {stage} for {agent_name}")
+    print(f"{'='*60}")
+    
+    state = callback_context.state.to_dict()
+    print(f"📋 Current Session State ({len(state)} keys):")
+    for key, value in state.items():
+        if isinstance(value, str) and len(value) > 100:
+            print(f"  {key}: {value[:100]}...")
+        else:
+            print(f"  {key}: {value}")
+    print(f"{'='*60}\n")
+
+def after_agent_state_callback(callback_context: CallbackContext) -> Optional[Content]:
+    """Callback to monitor state after agent execution"""
+    print_state_callback(callback_context, "AFTER AGENT EXECUTION")
+    return None  # Don't modify the agent's output
+
+def before_agent_state_callback(callback_context: CallbackContext) -> Optional[Content]:
+    """Callback to monitor state before agent execution"""
+    print_state_callback(callback_context, "BEFORE AGENT EXECUTION")
+    return None  # Allow agent to proceed normally
+
+# --- Instruction Providers for Dynamic State-Aware Instructions ---
+def batch_translator_instruction_provider(context: ReadonlyContext) -> str:
+    """Generate dynamic instructions for batch translator based on current state"""
+    state = context.state
+    source_text = state.get('source_text', '[No source text provided]')
+    target_language = state.get('target_language', 'Spanish')
+    glossary_terms = state.get('glossary_terms', {})
+    brand_terms = state.get('brand_terms', [])
+    
+    instruction = f"""You are a professional batch translator.
+
+CURRENT TASK:
+- Source Text: "{source_text}"
+- Target Language: {target_language}
+- Glossary Terms: {glossary_terms}
+- Brand Terms: {brand_terms}
+
+WORKFLOW:
+1. Translate the source text to {target_language}
+2. Use glossary terms for consistency (e.g., {dict(list(glossary_terms.items())[:2]) if glossary_terms else 'none provided'})
+3. Keep brand terms unchanged: {brand_terms if brand_terms else 'none provided'}
+4. If you encounter unclear terms, note them but continue with your best translation
+
+**Output:** Provide ONLY the translated text.
+"""
+    return instruction
+
+def batch_reviewer_instruction_provider(context: ReadonlyContext) -> str:
+    """Generate dynamic instructions for batch reviewer based on current state"""
+    state = context.state
+    current_translation = state.get('current_translation', '[No translation to review]')
+    source_text = state.get('source_text', '[No source text]')
+    target_language = state.get('target_language', 'Spanish')
+    clarifying_questions = state.get('clarifying_questions', [])
+    glossary_terms = state.get('glossary_terms', {})
+    
+    instruction = f"""You are a professional translation reviewer.
+
+CURRENT REVIEW TASK:
+- Source Text: "{source_text}"
+- Current Translation: "{current_translation}"
+- Target Language: {target_language}
+- Clarifying Questions: {clarifying_questions if clarifying_questions else 'None'}
+- Glossary Terms: {glossary_terms}
+
+WORKFLOW:
+1. Review the translation for grammar, fluency, and cultural appropriateness
+2. Check consistency with glossary terms
+3. Verify brand terms are preserved
+4. If clarifying questions exist, provide answers
+5. If translation is good, output: "{COMPLETION_PHRASE}"
+6. If needs improvement, provide specific feedback
+
+**Output:** Either "{COMPLETION_PHRASE}" or specific improvement feedback.
+"""
+    return instruction
+
+def translation_refiner_instruction_provider(context: ReadonlyContext) -> str:
+    """Generate dynamic instructions for translation refiner based on current state"""
+    state = context.state
+    current_translation = state.get('current_translation', '[No translation provided]')
+    batch_status = state.get('batch_status', 'pending')
+    review_comments = state.get('review_comments', [])
+    clarifying_answers = state.get('clarifying_answers', [])
+    
+    instruction = f"""You are a translation refiner.
+
+CURRENT REFINEMENT TASK:
+- Current Translation: "{current_translation}"
+- Batch Status: {batch_status}
+- Review Comments: {review_comments if review_comments else 'None'}
+- Clarifying Answers: {clarifying_answers if clarifying_answers else 'None'}
+
+WORKFLOW:
+1. If batch_status is "complete": Call exit_translation_loop() and output the current translation
+2. If review comments exist: Apply the feedback to improve the translation
+3. If clarifying answers exist: Use them to enhance the translation
+
+**Output:** Provide ONLY the improved translated text.
+"""
+    return instruction
+
+# Initialize session service
 session_service = InMemorySessionService()
-session = session_service.create_session(
-    app_name=APP_NAME,
-    user_id=USER_ID,
-    session_id=SESSION_ID_BASE,
-    state={
-        "source_text": "",
-        "target_language": "Spanish",  # Default to Spanish
-        "current_translation": "",
-        "translation_critique": ""
-    }
-)
 
 
 # --- Tool Definitions ---
@@ -92,111 +227,65 @@ def exit_translation_loop(tool_context: ToolContext):
     return {}
 
 
-# --- Agent Definitions ---
+# --- Agent Definitions Following the Workflow ---
 
-# STEP 1: Initial Translator Agent with language detection
-initial_translator_agent = LlmAgent(
-    name="InitialTranslatorAgent",
+# STEP 3: BATCH TRANSLATION AGENT
+# This agent translates content and writes clarifying questions to STATE if unsure
+batch_translator_agent = LlmAgent(
+    name="BatchTranslatorAgent",
     model=GEMINI_MODEL,
-    include_contents='default',
-    instruction="""You are a professional translator with language detection and measurement localizing capabilities.
-
-    Your task is a two-step process:
-    1.  **Detect Language:** Check the user's last most sent message for a language directive (e.g., "to French", "in German").
-        - If a language is specified, call `set_target_language` with that language.
-        - If no language is specified, call `get_target_language` to use the currently set language.
-
-    2.  **Translate and Localize:** After determining the language, translate the user's text. You MUST also convert formats and units for a non-US audience.
-        * **Dates:** Convert `MM/DD/YYYY` to `DD/MM/YYYY`.
-        * **Measurements:** Convert imperial units to metric.
-            * miles -> kilometers (km)
-            * pounds (lbs) -> kilograms (kg)
-            * feet -> meters (m)
-        * **Temperature:** Convert Fahrenheit (°F) to Celsius (°C).
-
-    3.  **Output:** Output ONLY the final, translated, and localized text. Do not include original values, explanations, or commentary.
-
-    Examples:
-    User: "Hello" → Check language, translate to current/default, output: "Hola"
-    User: "Hello in French" → Set to French, output: "Bonjour"
-    User: "Weather is nice to German" → Set to German, output: "Das Wetter ist schön",
-    description="Detects target language and performs initial translation.",
+    instruction=batch_translator_instruction_provider,  # Dynamic instruction based on state
+    description="Translates content using dynamic state-aware instructions",
     tools=[set_target_language, get_target_language],
-    output_key=STATE_CURRENT_TRANSLATION
-
-    **Example Workflow:**
-    User: "The package weighs 10 pounds and must be delivered 50 miles by 12/31/2024 to French"
-    You:
-    1) Call set_target_language("French")
-    2) Output: "Le colis pèse 4.54 kg et doit être livré à 80.47 km d'ici le 31/12/2024."
-"""
+    output_key=STATE_CURRENT_TRANSLATION,
+    after_agent_callback=after_agent_state_callback
 )
-# STEP 2a: Translation Critic Agent
-translation_critic_agent = LlmAgent(
-    name="TranslationCriticAgent",
+# STEP 4: BATCH REVIEWER AGENT
+# This agent reviews translations and handles clarifying questions
+batch_reviewer_agent = LlmAgent(
+    name="BatchReviewerAgent", 
     model=GEMINI_MODEL,
-    include_contents='default',
-    instruction=f"""You are a multilingual translation quality reviewer.
-
-    Look at the current translation that was just produced.
-    Based on the conversation context, determine what language it's supposed to be in.
-
-    Evaluate the translation for:
-    1. Grammar - Is it grammatically correct in that language?
-    2. Fluency - Does it sound natural in that language?
-
-    IF there are issues:
-    - Output specific corrections
-    - Be concise and specific
-
-    IF the translation looks good:
-    - Output EXACTLY: {COMPLETION_PHRASE}
-    - Nothing else""",
-    description="Reviews translation quality.",
-    output_key=STATE_TRANSLATION_CRITIQUE
+    instruction=batch_reviewer_instruction_provider,  # Dynamic instruction based on state
+    description="Reviews translations using dynamic state-aware instructions",
+    output_key=STATE_TRANSLATION_CRITIQUE,
+    after_agent_callback=after_agent_state_callback
 )
 
-# STEP 2b: Translation Refiner Agent
+# STEP 5: TRANSLATION REFINER AGENT  
+# This agent refines translations based on review feedback
 translation_refiner_agent = LlmAgent(
     name="TranslationRefinerAgent",
     model=GEMINI_MODEL,
-    include_contents='default',
-    instruction=f"""You are a multilingual translation refiner.
-
-    Look at the critique that was just provided.
-
-    IF the critique says EXACTLY "{COMPLETION_PHRASE}":
-    - Call exit_translation_loop function
-    - Do not output any text
-
-    ELSE:
-    - Apply the suggested corrections
-    - Output ONLY the improved translation
-    - Keep the same target language as the previous translation
-    - No explanations, just the refined translation text""",
-    description="Refines translation based on critique.",
+    instruction=translation_refiner_instruction_provider,  # Dynamic instruction based on state
+    description="Refines translations using dynamic state-aware instructions",
     tools=[exit_translation_loop],
-    output_key=STATE_CURRENT_TRANSLATION
+    output_key=STATE_CURRENT_TRANSLATION,
+    after_agent_callback=after_agent_state_callback
 )
 
-# STEP 2: Translation Refinement Loop
-translation_refinement_loop = LoopAgent(
-    name="TranslationRefinementLoop",
+# STEP 6: TRANSLATION REVIEW AND REFINEMENT LOOP
+# This loop handles the review -> refine -> review cycle until completion
+translation_review_loop = LoopAgent(
+    name="TranslationReviewLoop",
     sub_agents=[
-        translation_critic_agent,
-        translation_refiner_agent,
+        batch_reviewer_agent,      # Reviews and provides feedback
+        translation_refiner_agent, # Refines based on feedback
     ],
-    max_iterations=5
+    max_iterations=5,  # Prevent infinite loops
+    description="Reviews and refines translations until they meet quality standards"
 )
 
-# STEP 3: Overall Translation Pipeline
+# STEP 7: COMPLETE TRANSLATION WORKFLOW PIPELINE
+# This is the main pipeline following the workflow described in the comments
 root_agent = SequentialAgent(
-    name="IterativeTranslationPipeline",
+    name="ProfessionalTranslationWorkflow",
     sub_agents=[
-        initial_translator_agent,
-        translation_refinement_loop
+        batch_translator_agent,    # Step 3: Initial translation + clarifying questions
+        translation_review_loop    # Step 4-5: Review and refinement cycle
     ],
-    description="Translates English text to any language (default Spanish) with iterative quality refinement."
+    description="Professional translation workflow with batch processing, clarifying questions, and iterative refinement.",
+    before_agent_callback=before_agent_state_callback,  # Monitor state before each agent
+    after_agent_callback=after_agent_state_callback     # Monitor state after each agent
 )
 
 # Make agent available for ADK discovery
