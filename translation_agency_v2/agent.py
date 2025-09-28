@@ -50,6 +50,7 @@ STATE_SOURCE_TEXT = "source_text"
 STATE_TARGET_LANGUAGE = "target_language"
 STATE_CURRENT_TRANSLATION = "current_translation"
 STATE_TRANSLATION_CRITIQUE = "translation_critique"
+STATE_CLARIFYING_QUESTIONS = "clarifying_questions"
 
 # Define the exact phrase the Critic should use to signal completion
 COMPLETION_PHRASE = "Translation is accurate and fluent."
@@ -64,8 +65,9 @@ session = session_service.create_session(
         "source_text": "",
         "target_language": "Spanish",  # Default to Spanish
         "current_translation": "",
-        "translation_critique": ""
-    }
+        "translation_critique": "",
+        "clarifying_questions": []
+}
 )
 
 
@@ -91,6 +93,13 @@ def exit_translation_loop(tool_context: ToolContext):
     tool_context.actions.escalate = True
     return {}
 
+def ask_clarifying_question(tool_context: ToolContext, question: str):
+    """Call this when the source text is ambiguous or has a likely typo."""
+    print(f"  [Tool Call] Clarifying Question Asked: {question}")
+    # Add the question to a list in the state
+    tool_context.state.setdefault(STATE_CLARIFYING_QUESTIONS, []).append(question)
+    return {"status": "success", "question_logged": True}
+
 
 # --- Agent Definitions ---
 
@@ -105,6 +114,11 @@ initial_translator_agent = LlmAgent(
     1.  **Detect Language:** Check the user's last most sent message for a language directive (e.g., "to French", "in German").
         - If a language is specified, call `set_target_language` with that language.
         - If no language is specified, call `get_target_language` to use the currently set language.
+        
+        **CRITICAL RULE:** If the source text contains a clear typo (e.g., 'equpment' instead of 'equipment'), 
+        is highly ambiguous, or makes no sense, you MUST NOT guess.Instead, you MUST call the `ask_clarifying_question` tool 
+        to state your question.After calling the tool, output only the phrase: "Waiting for clarification."
+
 
     2.  **Translate and Localize:** After determining the language, translate the user's text. You MUST also convert formats and units for a non-US audience.
         * **Dates:** Convert `MM/DD/YYYY` to `DD/MM/YYYY`.

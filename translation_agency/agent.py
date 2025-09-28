@@ -1,4 +1,29 @@
-# Language Translator ADK Agent - Translates from English to any language with iterative refinement
+""""
+Idea --> Rebuild professional translation workflow using AI Agents
+
+Flow:
+1) Customer pushes content changes to CMS or DB --> it fires our localized workflow
+
+2a) Case 1: small changes (single paragraph, sentence, button addition/change)
+    - Build relevant context window (Section Group) --> give the translator enough context to make the small translation since its meaning is dependent on the surrounding text
+
+2b) Case 2: large changes (multiple paragraphs, full sections, pages)
+    - Separate into groups (by section) for parallized translation
+
+** NOTE: Context curator agent would go here, but ignore for now **
+
+3) BATCH TRANSLATION AGENTS
+    - Translates all batches and follows relevant comments which have been cached in previous runs (glossary terms, brand terms, repeated keywords that need to be consistent throughout the app)
+    - If unsure about something, writes Clarifying Questions to the STATE OBJECT (this mimics the human process of the translator asking clarifying questions to the customer)
+
+4) BATCH REVIEWER AGENT
+    - IF clarifying questions are present it will consult the context of the website (and write answers to the STATE OBJECT and recall translation for that batch)
+    - ELSE it will review the translation and ensure that it abides by the rubric
+        - IF the translation is good, it will output the translation and set the batch to complete
+        - ELSE flag certain content for review and write comments to the STATE OBJECT that will be helpful for the translator, once full batch it done --> REVIEW AGAIN
+
+5) SAVE FINAL TRANSLATION TO DATABASE
+"""
 
 import asyncio
 import os
@@ -111,7 +136,7 @@ translation_critic_agent = LlmAgent(
     name="TranslationCriticAgent",
     model=GEMINI_MODEL,
     include_contents='default',
-    instruction=f"""You are a multilingual translation quality reviewer.
+    instruction="""You are a professional batch translator specializing in brand consistency, technical terminology, and clarifying questions.
 
     Look at the current translation that was just produced.
     Based on the conversation context, determine what language it's supposed to be in.
