@@ -1,4 +1,29 @@
-# Language Translator ADK Agent - Translates from English to any language with iterative refinement
+""""
+Idea --> Rebuild professional translation workflow using AI Agents
+
+Flow:
+1) Customer pushes content changes to CMS or DB --> it fires our localized workflow
+
+2a) Case 1: small changes (single paragraph, sentence, button addition/change)
+    - Build relevant context window (Section Group) --> give the translator enough context to make the small translation since its meaning is dependent on the surrounding text
+
+2b) Case 2: large changes (multiple paragraphs, full sections, pages)
+    - Separate into groups (by section) for parallized translation
+
+** NOTE: Context curator agent would go here, but ignore for now **
+
+3) BATCH TRANSLATION AGENTS
+    - Translates all batches and follows relevant comments which have been cached in previous runs (glossary terms, brand terms, repeated keywords that need to be consistent throughout the app)
+    - If unsure about something, writes Clarifying Questions to the STATE OBJECT (this mimics the human process of the translator asking clarifying questions to the customer)
+
+4) BATCH REVIEWER AGENT
+    - IF clarifying questions are present it will consult the context of the website (and write answers to the STATE OBJECT and recall translation for that batch)
+    - ELSE it will review the translation and ensure that it abides by the rubric
+        - IF the translation is good, it will output the translation and set the batch to complete
+        - ELSE flag certain content for review and write comments to the STATE OBJECT that will be helpful for the translator, once full batch it done --> REVIEW AGAIN
+
+5) SAVE FINAL TRANSLATION TO DATABASE
+"""
 
 import asyncio
 import os
@@ -25,6 +50,7 @@ STATE_SOURCE_TEXT = "source_text"
 STATE_TARGET_LANGUAGE = "target_language"
 STATE_CURRENT_TRANSLATION = "current_translation"
 STATE_TRANSLATION_CRITIQUE = "translation_critique"
+STATE_CLARIFYING_QUESTIONS = "clarifying_questions"
 
 # Define the exact phrase the Critic should use to signal completion
 COMPLETION_PHRASE = "Translation is accurate and fluent."
@@ -39,8 +65,9 @@ session = session_service.create_session(
         "source_text": "",
         "target_language": "Spanish",  # Default to Spanish
         "current_translation": "",
-        "translation_critique": ""
-    }
+        "translation_critique": "",
+        "clarifying_questions": []
+}
 )
 
 
@@ -66,6 +93,13 @@ def exit_translation_loop(tool_context: ToolContext):
     tool_context.actions.escalate = True
     return {}
 
+def ask_clarifying_question(tool_context: ToolContext, question: str):
+    """Call this when the source text is ambiguous or has a likely typo."""
+    print(f"  [Tool Call] Clarifying Question Asked: {question}")
+    # Add the question to a list in the state
+    tool_context.state.setdefault(STATE_CLARIFYING_QUESTIONS, []).append(question)
+    return {"status": "success", "question_logged": True}
+
 
 # --- Agent Definitions ---
 
@@ -80,6 +114,11 @@ initial_translator_agent = LlmAgent(
     1.  **Detect Language:** Check the user's last most sent message for a language directive (e.g., "to French", "in German").
         - If a language is specified, call `set_target_language` with that language.
         - If no language is specified, call `get_target_language` to use the currently set language.
+        
+        **CRITICAL RULE:** If the source text contains a clear typo (e.g., 'equpment' instead of 'equipment'), 
+        is highly ambiguous, or makes no sense, you MUST NOT guess.Instead, you MUST call the `ask_clarifying_question` tool 
+        to state your question.After calling the tool, output only the phrase: "Waiting for clarification."
+
 
     2.  **Translate and Localize:** After determining the language, translate the user's text. You MUST also convert formats and units for a non-US audience.
         * **Dates:** Convert `MM/DD/YYYY` to `DD/MM/YYYY`.
