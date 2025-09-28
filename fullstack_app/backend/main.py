@@ -76,7 +76,7 @@ async def translate_text(request: TranslationRequest):
     using the ADK translation agent with iterative refinement.
     """
     try:
-        log                            er.info(f"Translation request: '{request.source_text}' -> {request.target_language}")
+        logger.info(f"Translation request: '{request.source_text}' -> {request.target_language}")
         
         # Generate unique session ID for this translation
         session_id = f"translation_{uuid.uuid4().hex[:8]}"
