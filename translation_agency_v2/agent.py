@@ -27,7 +27,7 @@ Flow:
 
 import asyncio
 import os
-from google.adk.agents import LoopAgent, LlmAgent, BaseAgent, SequentialAgent
+from google.adk.agents import LoopAgent, LlmAgent, BaseAgent, SequentialAgent, ParallelAgent
 from google.genai import types
 from google.adk.runners import InMemoryRunner
 from google.adk.agents.invocation_context import InvocationContext
@@ -263,27 +263,282 @@ translation_refiner_agent = LlmAgent(
     after_agent_callback=after_agent_state_callback
 )
 
-# STEP 6: TRANSLATION REVIEW AND REFINEMENT LOOP
-# This loop handles the review -> refine -> review cycle until completion
-translation_review_loop = LoopAgent(
-    name="TranslationReviewLoop",
-    sub_agents=[
-        batch_reviewer_agent,      # Reviews and provides feedback
-        translation_refiner_agent, # Refines based on feedback
-    ],
-    max_iterations=5,  # Prevent infinite loops
-    description="Reviews and refines translations until they meet quality standards"
+# STEP 6: PARALLEL BATCH TRANSLATOR AGENTS
+# Create individual translator agents for each batch group with unique output keys
+
+# Create individual translator agents with static instructions
+batch_translator_group_1 = LlmAgent(
+    name="BatchTranslator_group_1",
+    model=GEMINI_MODEL,
+    instruction=lambda ctx: f"""You are a professional translator specializing in navigation menu.
+
+CURRENT TASK:
+- Group: Navigation menu (group_1)
+- Source Text: {ctx.state.get('source_text_group_1', '[No content provided]')}
+- Target Language: {ctx.state.get('target_language', 'Portuguese')}
+- Glossary Terms: {ctx.state.get('glossary_terms', {})}
+- Brand Terms: {ctx.state.get('brand_terms', [])}
+
+TRANSLATION GUIDELINES:
+1. Translate the source text to {ctx.state.get('target_language', 'Portuguese')}
+2. Maintain the original format markers (e.g., [BUTTON], [HEADER], [CONTENT])
+3. Use glossary terms for consistency
+4. Keep brand terms unchanged: {ctx.state.get('brand_terms', [])}
+5. Consider the context of navigation menu when translating
+
+**Output:** Provide ONLY the translated text, maintaining exact formatting.""",
+    output_key="translation_group_1",
+    description="Translates Navigation menu content in parallel"
 )
 
-# STEP 7: COMPLETE TRANSLATION WORKFLOW PIPELINE
-# This is the main pipeline following the workflow described in the comments
+batch_translator_group_2 = LlmAgent(
+    name="BatchTranslator_group_2",
+    model=GEMINI_MODEL,
+    instruction=lambda ctx: f"""You are a professional translator specializing in hero section.
+
+CURRENT TASK:
+- Group: Hero section (group_2)
+- Source Text: {ctx.state.get('source_text_group_2', '[No content provided]')}
+- Target Language: {ctx.state.get('target_language', 'Portuguese')}
+- Glossary Terms: {ctx.state.get('glossary_terms', {})}
+- Brand Terms: {ctx.state.get('brand_terms', [])}
+
+TRANSLATION GUIDELINES:
+1. Translate the source text to {ctx.state.get('target_language', 'Portuguese')}
+2. Maintain the original format markers (e.g., [BUTTON], [HEADER], [CONTENT])
+3. Use glossary terms for consistency
+4. Keep brand terms unchanged: {ctx.state.get('brand_terms', [])}
+5. Consider the context of hero section when translating
+
+**Output:** Provide ONLY the translated text, maintaining exact formatting.""",
+    output_key="translation_group_2",
+    description="Translates Hero section content in parallel"
+)
+
+batch_translator_group_3 = LlmAgent(
+    name="BatchTranslator_group_3",
+    model=GEMINI_MODEL,
+    instruction=lambda ctx: f"""You are a professional translator specializing in testimonial carousel.
+
+CURRENT TASK:
+- Group: Testimonial carousel (group_3)
+- Source Text: {ctx.state.get('source_text_group_3', '[No content provided]')}
+- Target Language: {ctx.state.get('target_language', 'Portuguese')}
+- Glossary Terms: {ctx.state.get('glossary_terms', {})}
+- Brand Terms: {ctx.state.get('brand_terms', [])}
+
+TRANSLATION GUIDELINES:
+1. Translate the source text to {ctx.state.get('target_language', 'Portuguese')}
+2. Maintain the original format markers (e.g., [BUTTON], [HEADER], [CONTENT])
+3. Use glossary terms for consistency
+4. Keep brand terms unchanged: {ctx.state.get('brand_terms', [])}
+5. Consider the context of testimonial carousel when translating
+
+**Output:** Provide ONLY the translated text, maintaining exact formatting.""",
+    output_key="translation_group_3",
+    description="Translates Testimonial carousel content in parallel"
+)
+
+# Create remaining agents (simplified for brevity)
+batch_translator_group_4 = LlmAgent(
+    name="BatchTranslator_group_4",
+    model=GEMINI_MODEL,
+    instruction=lambda ctx: f"""Translate the Octopi Store section content from {ctx.state.get('source_text_group_4', '')} to {ctx.state.get('target_language', 'Portuguese')}. Keep brand terms {ctx.state.get('brand_terms', [])} unchanged. Output only the translated text with original formatting.""",
+    output_key="translation_group_4",
+    description="Translates Octopi Store section content"
+)
+
+batch_translator_group_5 = LlmAgent(
+    name="BatchTranslator_group_5",
+    model=GEMINI_MODEL,
+    instruction=lambda ctx: f"""Translate the Coaching marketplace section content from {ctx.state.get('source_text_group_5', '')} to {ctx.state.get('target_language', 'Portuguese')}. Keep brand terms {ctx.state.get('brand_terms', [])} unchanged. Output only the translated text with original formatting.""",
+    output_key="translation_group_5",
+    description="Translates Coaching marketplace section content"
+)
+
+batch_translator_group_6 = LlmAgent(
+    name="BatchTranslator_group_6",
+    model=GEMINI_MODEL,
+    instruction=lambda ctx: f"""Translate the Vault explanation section content from {ctx.state.get('source_text_group_6', '')} to {ctx.state.get('target_language', 'Portuguese')}. Keep brand terms {ctx.state.get('brand_terms', [])} unchanged. Output only the translated text with original formatting.""",
+    output_key="translation_group_6",
+    description="Translates The Vault explanation section content"
+)
+
+batch_translator_group_7 = LlmAgent(
+    name="BatchTranslator_group_7",
+    model=GEMINI_MODEL,
+    instruction=lambda ctx: f"""Translate the Product tutorials section content from {ctx.state.get('source_text_group_7', '')} to {ctx.state.get('target_language', 'Portuguese')}. Keep brand terms {ctx.state.get('brand_terms', [])} unchanged. Output only the translated text with original formatting.""",
+    output_key="translation_group_7",
+    description="Translates Product tutorials section content"
+)
+
+batch_translator_group_8 = LlmAgent(
+    name="BatchTranslator_group_8",
+    model=GEMINI_MODEL,
+    instruction=lambda ctx: f"""Translate the Ask George section content from {ctx.state.get('source_text_group_8', '')} to {ctx.state.get('target_language', 'Portuguese')}. Keep brand terms {ctx.state.get('brand_terms', [])} unchanged. Output only the translated text with original formatting.""",
+    output_key="translation_group_8",
+    description="Translates Ask George section content"
+)
+
+batch_translator_group_9 = LlmAgent(
+    name="BatchTranslator_group_9",
+    model=GEMINI_MODEL,
+    instruction=lambda ctx: f"""Translate the Footer section content from {ctx.state.get('source_text_group_9', '')} to {ctx.state.get('target_language', 'Portuguese')}. Keep brand terms {ctx.state.get('brand_terms', [])} unchanged. Output only the translated text with original formatting.""",
+    output_key="translation_group_9",
+    description="Translates Footer section content"
+)
+
+# Collect all translator agents
+parallel_translator_agents = [
+    batch_translator_group_1, batch_translator_group_2, batch_translator_group_3,
+    batch_translator_group_4, batch_translator_group_5, batch_translator_group_6,
+    batch_translator_group_7, batch_translator_group_8, batch_translator_group_9
+]
+
+# STEP 7: STAGED PARALLEL TRANSLATION EXECUTION
+# Process batches in groups of 3 to avoid API rate limits and improve reliability
+
+# Group 1: Navigation, Hero, Testimonials (3 agents)
+parallel_group_1 = ParallelAgent(
+    name="ParallelGroup1",
+    sub_agents=[batch_translator_group_1, batch_translator_group_2, batch_translator_group_3],
+    description="Translates Navigation, Hero, and Testimonials in parallel"
+)
+
+# Group 2: Store, Coaching, Vault (3 agents)  
+parallel_group_2 = ParallelAgent(
+    name="ParallelGroup2",
+    sub_agents=[batch_translator_group_4, batch_translator_group_5, batch_translator_group_6],
+    description="Translates Store, Coaching, and Vault sections in parallel"
+)
+
+# Group 3: Tutorials, Ask George, Footer (3 agents)
+parallel_group_3 = ParallelAgent(
+    name="ParallelGroup3", 
+    sub_agents=[batch_translator_group_7, batch_translator_group_8, batch_translator_group_9],
+    description="Translates Tutorials, Ask George, and Footer sections in parallel"
+)
+
+# Sequential execution of parallel groups
+staged_parallel_translator = SequentialAgent(
+    name="StagedParallelTranslator",
+    sub_agents=[parallel_group_1, parallel_group_2, parallel_group_3],
+    description="Executes batch translations in staged parallel groups for optimal performance"
+)
+
+# STEP 8: BATCH REVIEW AGENT
+# Reviews all parallel translation results and flags issues
+def batch_review_instruction_provider(ctx):
+    return f"""You are a professional translation reviewer analyzing multiple batch translations.
+
+REVIEW ALL TRANSLATIONS:
+{chr(10).join([f"- {group_id}: {ctx.state.get(f'translation_{group_id}', '[Not translated]')}" for group_id in ['group_1', 'group_2', 'group_3', 'group_4', 'group_5', 'group_6', 'group_7', 'group_8', 'group_9']])}
+
+TARGET LANGUAGE: {ctx.state.get('target_language', 'Portuguese')}
+GLOSSARY TERMS: {ctx.state.get('glossary_terms', {})}
+BRAND TERMS: {ctx.state.get('brand_terms', [])}
+
+REVIEW CRITERIA:
+1. Accuracy and fluency
+2. Consistency with glossary terms
+3. Brand terms remain unchanged
+4. Format markers preserved
+5. Contextual appropriateness for each section
+
+**Output Format:**
+REVIEW_STATUS: [APPROVED/NEEDS_REVISION]
+FLAGGED_BATCHES: [list of group_ids that need revision, e.g., group_1,group_3]
+COMMENTS:
+- group_1: [specific feedback if flagged]
+- group_3: [specific feedback if flagged]
+
+If all translations are good, output: REVIEW_STATUS: APPROVED"""
+
+batch_review_agent = LlmAgent(
+    name="ParallelBatchReviewer",
+    model=GEMINI_MODEL,
+    instruction=batch_review_instruction_provider,
+    output_key="batch_review_results",
+    description="Reviews all parallel translations and flags issues"
+)
+
+# STEP 9: BATCH REGENERATION AGENT
+# Regenerates flagged batches with specific feedback
+def batch_regeneration_instruction_provider(ctx):
+    return f"""You are a translation regeneration specialist. Based on review feedback, regenerate ONLY the flagged batches.
+
+REVIEW RESULTS: {ctx.state.get('batch_review_results', 'No review available')}
+TARGET LANGUAGE: {ctx.state.get('target_language', 'Portuguese')}
+GLOSSARY TERMS: {ctx.state.get('glossary_terms', {})}
+BRAND TERMS: {ctx.state.get('brand_terms', [])}
+
+INSTRUCTIONS:
+1. Parse the review results to identify flagged batches
+2. For each flagged batch, regenerate the translation addressing the specific feedback
+3. Only regenerate batches that were flagged for revision
+
+**Output Format:**
+REGENERATED_TRANSLATIONS:
+- group_X: [improved translation]
+- group_Y: [improved translation]
+
+If no batches were flagged, output: NO_REGENERATION_NEEDED"""
+
+batch_regeneration_agent = LlmAgent(
+    name="BatchRegenerationAgent", 
+    model=GEMINI_MODEL,
+    instruction=batch_regeneration_instruction_provider,
+    output_key="regenerated_translations",
+    description="Regenerates flagged batches with specific feedback"
+)
+
+# STEP 10: FINAL REFINEMENT AGENT
+# Produces final polished translations incorporating all feedback
+def final_refinement_instruction_provider(ctx):
+    return f"""You are the final translation refinement specialist. Produce the final, polished translations.
+
+ORIGINAL TRANSLATIONS:
+{chr(10).join([f"- {group_id}: {ctx.state.get(f'translation_{group_id}', '[Not available]')}" for group_id in ['group_1', 'group_2', 'group_3', 'group_4', 'group_5', 'group_6', 'group_7', 'group_8', 'group_9']])}
+
+REGENERATED TRANSLATIONS: {ctx.state.get('regenerated_translations', 'None')}
+REVIEW FEEDBACK: {ctx.state.get('batch_review_results', 'No feedback')}
+
+TASK:
+1. For each group, use the regenerated version if available, otherwise use the original
+2. Apply final polish and consistency checks
+3. Ensure all translations meet professional standards
+
+**Output:** Provide the final translations in this format:
+FINAL_TRANSLATIONS:
+- group_1: [final translation]
+- group_2: [final translation]
+- group_3: [final translation]
+- group_4: [final translation]
+- group_5: [final translation]
+- group_6: [final translation]
+- group_7: [final translation]
+- group_8: [final translation]
+- group_9: [final translation]"""
+
+final_refinement_agent = LlmAgent(
+    name="FinalRefinementAgent",
+    model=GEMINI_MODEL,
+    instruction=final_refinement_instruction_provider,
+    output_key="final_translations",
+    description="Produces final polished translations incorporating all feedback"
+)
+
+# STEP 11: COMPLETE STAGED PARALLEL TRANSLATION WORKFLOW
+# Orchestrates the entire staged parallel translation pipeline
 root_agent = SequentialAgent(
-    name="ProfessionalTranslationWorkflow",
+    name="StagedParallelTranslationWorkflow",
     sub_agents=[
-        batch_translator_agent,    # Step 3: Initial translation + clarifying questions
-        translation_review_loop    # Step 4-5: Review and refinement cycle
+        staged_parallel_translator,  # Step 1: Translate all batches in staged parallel groups
+        batch_review_agent,          # Step 2: Review all translations
+        batch_regeneration_agent,    # Step 3: Regenerate flagged batches
+        final_refinement_agent       # Step 4: Final refinement and polish
     ],
-    description="Professional translation workflow with batch processing, clarifying questions, and iterative refinement.",
+    description="Professional staged parallel translation workflow: staged concurrent translation → review → regeneration → refinement",
     before_agent_callback=before_agent_state_callback,  # Monitor state before each agent
     after_agent_callback=after_agent_state_callback     # Monitor state after each agent
 )

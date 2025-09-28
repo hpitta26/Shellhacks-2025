@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
 Website Translation Workflow
-Integrates batch processor with translation agents for complete website translation
+============================
+PRODUCTION WORKFLOW: Integrates batch processor with the complete ADK translation workflow.
+This is the production-ready script for translating entire websites using the parallel batch approach.
+
+Usage: python website_translation_workflow.py
 """
 import asyncio
 import os

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
 Demo: Group-Based Batch Processing
-Shows how content is batched by groups to maintain contextual meaning
+==================================
+UTILITY DEMO: Shows how website content is processed into batches by groups.
+This demonstrates the batch creation logic without running any translations.
+
+Usage: python demo_batch_strategies.py
 """
 from batch_processor import ContentBatchProcessor
 
