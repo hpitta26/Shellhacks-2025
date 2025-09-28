@@ -121,8 +121,9 @@ translation_critic_agent = LlmAgent(
     2. Fluency - Does it sound natural in that language?
 
     IF there are issues:
-    - Output specific corrections
     - Be concise and specific
+    - Go into detail what the issue is.
+    - Explain what grammatical or fluency errors were broken and what they rules are.
 
     IF the translation looks good:
     - Output EXACTLY: {COMPLETION_PHRASE}
@@ -145,7 +146,8 @@ translation_refiner_agent = LlmAgent(
     - Do not output any text
 
     ELSE:
-    - Apply the suggested corrections
+    - If there are grammatical or fluency issues mentioned in the critique use the explanation to fix them.
+    - Apply the other suggested corrections
     - Output ONLY the improved translation
     - Keep the same target language as the previous translation
     - No explanations, just the refined translation text""",

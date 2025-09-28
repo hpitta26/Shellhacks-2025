@@ -20,9 +20,6 @@ load_dotenv()
 # Import the translation agent
 from translation_agency.agent import root_agent, APP_NAME
 
-# RUN APP --> python -m uvicorn main:app --reload
-# API DOCS --> http://127.0.0.1:8000/docs
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -76,13 +73,13 @@ async def translate_text(request: TranslationRequest):
     using the ADK translation agent with iterative refinement.
     """
     try:
-        log                            er.info(f"Translation request: '{request.source_text}' -> {request.target_language}")
+        logger.info(f"Translation request: '{request.source_text}' -> {request.target_language}")
         
         # Generate unique session ID for this translation
         session_id = f"translation_{uuid.uuid4().hex[:8]}"
         user_id = "api_user"
         
-        # Create session with initial state
+        # Create session with initial state - AWAIT the async call
         session = await session_service.create_session(
             app_name=APP_NAME,
             user_id=user_id,
@@ -103,7 +100,7 @@ async def translate_text(request: TranslationRequest):
         )
         
         # Create a user message to trigger the agent
-        user_message = Content(parts=[Part(text=f"Please translate this text to {request.target_language}: {request.source_text}")])
+        user_message = Content(parts=[Part(text=f"Translate this to {request.target_language}: {request.source_text}")])
         
         # Run the agent
         final_translation = ""
@@ -116,7 +113,7 @@ async def translate_text(request: TranslationRequest):
                 final_translation = event.content.parts[0].text if event.content and event.content.parts else ""
                 break
         
-        # Get the final session state to retrieve the translation
+        # Get the final session state to retrieve the translation - AWAIT the async call
         updated_session = await session_service.get_session(
             app_name=APP_NAME,
             user_id=user_id,
