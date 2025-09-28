@@ -152,10 +152,10 @@ const App = () => {
         {sections.map((section, sectionIndex) => {
           const originalSection = originalSections.find(orig => orig.section_id === section.section_id);
           const imageUrl = originalSection?.image;
-          
+
           return (
-            <section 
-              key={section.section_id} 
+            <section
+              key={section.section_id}
               className={`${sectionIndex % 2 === 0 ? 'md:flex-row' : 'md:flex-row-reverse'} flex flex-col md:gap-16 gap-8 items-start`}
             >
               {/* Title + Image Column */}
@@ -172,8 +172,8 @@ const App = () => {
                 </div>
                 {imageUrl && (
                   <div className="aspect-square overflow-hidden">
-                    <img 
-                      src={imageUrl} 
+                    <img
+                      src={imageUrl}
                       alt={getSectionDisplayTitle(section, isTranslated)}
                       className="w-full h-full object-cover"
                     />
