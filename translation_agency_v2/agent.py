@@ -96,7 +96,8 @@ def create_content_agnostic_workflow(content_file_path: str = "website_content.j
 
        CRITICAL RULES:
        1. Keep brand terms unchanged: {', '.join(brand_terms)}
-      3. Extract ONLY the text after format markers [BUTTON], [HEADER], [CONTENT] - DO NOT include the markers
+       2. Use poker terminology correctly: {', '.join([f"{k} = {v}" for k, v in glossary_terms.items()])}
+       3. Extract ONLY the text after format markers [BUTTON], [HEADER], [CONTENT] - DO NOT include the markers
        4. Translate EVERY SINGLE item in the input - do not skip any
        6. Maintain the tone appropriate for {batch_info.group_name.lower()} content
        7. Return JSON with ALL translated values in order
@@ -117,7 +118,7 @@ def create_content_agnostic_workflow(content_file_path: str = "website_content.j
             model=GEMINI_MODEL,
             instruction=create_batch_instruction(batch, i),
             output_schema=TranslationOutput,
-            output_key=f"translation_{i + 1}",
+            output_key=f"translation_{i+1}",
             description=f"Translates {batch.group_name} content ({batch.total_items} items)"
         )
         all_agents.append(agent)
@@ -135,12 +136,12 @@ def create_content_agnostic_workflow(content_file_path: str = "website_content.j
         group_description = f"Translates {', '.join(group_batch_names)} in parallel"
 
         parallel_group = ParallelAgent(
-            name=f"ParallelGroup{group_idx + 1}",
+            name=f"ParallelGroup{group_idx+1}",
             sub_agents=group_agents,
             description=group_description
         )
         parallel_groups.append(parallel_group)
-        print(f"   🔄 Group {group_idx + 1}: {', '.join(group_batch_names)} ({len(group_agents)} agents)")
+        print(f"   🔄 Group {group_idx+1}: {', '.join(group_batch_names)} ({len(group_agents)} agents)")
 
     # Create the main parallel translator (Step 1)
     staged_parallel_translator = SequentialAgent(
@@ -154,12 +155,12 @@ def create_content_agnostic_workflow(content_file_path: str = "website_content.j
         # Get character limits from state
         char_limits_data = {}
         for i in range(num_batches):
-            char_limits_data[f"translation_{i + 1}"] = ctx.state.get(f'char_limits_{i + 1}', '')
+            char_limits_data[f"translation_{i+1}"] = ctx.state.get(f'char_limits_{i+1}', '')
 
         # Dynamically build review for all available translations
-        translation_keys = [f"translation_{i + 1}" for i in range(num_batches)]
+        translation_keys = [f"translation_{i+1}" for i in range(num_batches)]
         translations_text = chr(10).join([
-            f"- Group {i + 1}: {ctx.state.get(f'translation_{i + 1}', '[Not translated]')}"
+            f"- Group {i+1}: {ctx.state.get(f'translation_{i+1}', '[Not translated]')}"
             for i in range(num_batches)
         ])
 
@@ -171,7 +172,7 @@ REVIEW ALL TRANSLATIONS:
 
 
 CHARACTER LIMITS TO CHECK:
-{chr(10).join([f"Group {i + 1}: {char_limits_data[f'translation_{i + 1}']}" for i in range(num_batches)])}
+{chr(10).join([f"Group {i+1}: {char_limits_data[f'translation_{i+1}']}" for i in range(num_batches)])}
 
 
 TARGET LANGUAGE: {ctx.state.get('target_language', 'Portuguese')}
@@ -253,7 +254,7 @@ If no batches were flagged, output: NO_REGENERATION_NEEDED"""
     def dynamic_final_refinement_instruction(ctx):
         # Dynamically build final refinement for all translations
         original_translations = chr(10).join([
-            f"- group_{i + 1}: {ctx.state.get(f'translation_{i + 1}', '[Not available]')}"
+            f"- group_{i+1}: {ctx.state.get(f'translation_{i+1}', '[Not available]')}"
             for i in range(num_batches)
         ])
 
@@ -279,7 +280,7 @@ TASK:
 FINAL_TRANSLATIONS:
 - group_1: [final translation items]
 - group_2: [final translation items]
-{chr(10).join([f"- group_{i + 1}: [final translation items]" for i in range(2, num_batches)])}"""
+{chr(10).join([f"- group_{i+1}: [final translation items]" for i in range(2, num_batches)])}"""
 
     dynamic_final_refinement_agent = LlmAgent(
         name="DynamicFinalRefinementAgent",
@@ -293,10 +294,10 @@ FINAL_TRANSLATIONS:
     root_agent = SequentialAgent(
         name="ContentAgnosticTranslationWorkflow",
         sub_agents=[
-            staged_parallel_translator,  # Step 1: Translate all batches in staged parallel groups
-            dynamic_batch_reviewer,  # Step 2: Review all translations
-            dynamic_batch_regeneration_agent,  # Step 3: Regenerate flagged batches
-            dynamic_final_refinement_agent  # Step 4: Final refinement and polish
+            staged_parallel_translator,          # Step 1: Translate all batches in staged parallel groups
+            dynamic_batch_reviewer,              # Step 2: Review all translations
+            dynamic_batch_regeneration_agent,    # Step 3: Regenerate flagged batches
+            dynamic_final_refinement_agent       # Step 4: Final refinement and polish
         ],
         description=f"Content-agnostic translation workflow: {num_batches} groups → staged parallel → review → regeneration → refinement"
     )
@@ -314,14 +315,15 @@ FINAL_TRANSLATIONS:
 # Create the main workflow (can be imported by test scripts)
 root_agent, content_batches, content_processor = create_content_agnostic_workflow()
 
+
 # Export key components
 __all__ = [
-    "root_agent",
-    "content_batches",
-    "content_processor",
-    "create_content_agnostic_workflow",
-    "TranslationItem",
-    "TranslationOutput",
-    "APP_NAME",
-    "GEMINI_MODEL"
+   "root_agent",
+   "content_batches",
+   "content_processor",
+   "create_content_agnostic_workflow",
+   "TranslationItem",
+   "TranslationOutput",
+   "APP_NAME",
+   "GEMINI_MODEL"
 ]
