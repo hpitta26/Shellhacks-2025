@@ -18,7 +18,8 @@ FEATURES:
 import os
 from typing import Dict, List
 from pydantic import BaseModel, Field
-from .batch_processor import ContentBatchProcessor
+from batch_processor import ContentBatchProcessor
+from char_limit_validator import create_length_validation_callback
 from google.adk.agents import LlmAgent, ParallelAgent, SequentialAgent
 
 # Load environment variables
@@ -87,39 +88,43 @@ def create_content_agnostic_workflow(content_file_path: str = "website_content.j
        CONTEXT: You are translating {batch_info.group_description} content for a wild life website.
        GROUP: {batch_info.group_name} ({batch_info.total_items} items)
 
+CHARACTER LIMITS (CRITICAL FOR UI COMPATIBILITY):
+{batch_info.get_character_limits_info()}
 
-       Source content to translate:
-       {ctx.state.get(f'source_text_{batch_idx + 1}', '')}
+CRITICAL RULES:
+1. Keep brand terms unchanged: {', '.join(brand_terms)}
+2. Use poker terminology correctly: {', '.join([f"{k} = {v}" for k, v in glossary_terms.items()])}
+3. Extract ONLY the text after format markers [BUTTON], [HEADER], [CONTENT] - DO NOT include the markers
+4. Translate EVERY SINGLE item in the input - do not skip any
+5. RESPECT CHARACTER LIMITS: Headers/Buttons are UI elements with strict space constraints
+6. Maintain the tone appropriate for {batch_info.group_name.lower()} content
+7. Return JSON with ALL translated values in order
 
+CONTENT TYPE GUIDANCE:
+- Navigation items: Keep concise and clear
+- Headers: Maintain impact and clarity, stay within character limits
+- Content: Preserve meaning and engagement, but respect limits
+- Buttons: Use action-oriented language, be concise for UI space
 
+TRANSLATION STRATEGY FOR LIMITS:
+- Use shorter synonyms when possible
+- Consider abbreviations for common terms
+- Prioritize meaning over literal translation if length is an issue
+- For headers/buttons: Conciseness is critical for UI layout
 
-
-       CRITICAL RULES:
-       1. Keep brand terms unchanged: {', '.join(brand_terms)}
-       2. Use poker terminology correctly: {', '.join([f"{k} = {v}" for k, v in glossary_terms.items()])}
-       3. Extract ONLY the text after format markers [BUTTON], [HEADER], [CONTENT] - DO NOT include the markers
-       4. Translate EVERY SINGLE item in the input - do not skip any
-       6. Maintain the tone appropriate for {batch_info.group_name.lower()} content
-       7. Return JSON with ALL translated values in order
-
-
-       CONTENT TYPE GUIDANCE:
-       - Navigation items: Keep concise and clear
-       - Headers: Maintain impact and clarity
-       - Content: Preserve meaning and engagement
-       - Buttons: Use action-oriented language
-
-
-       Example input: "[BUTTON] The Vault\\n[BUTTON] My Hands\\n[CONTENT] Welcome"
-       Example output: {{"items": [{{"value": "O Vault"}}, {{"value": "Minhas Mãos"}}, {{"value": "Bem-vindo"}}]}}"""
-
+Example input: "[BUTTON] The Vault\\n[BUTTON] My Hands\\n[CONTENT] Welcome"
+Example output: {{"items": [{{"value": "O Vault"}}, {{"value": "Minhas Mãos"}}, {{"value": "Bem-vindo"}}]}}"""
+        
+        # Create character limit validation callback for this batch
+        length_validator = create_length_validation_callback(batch)
         agent = LlmAgent(
             name=f"BatchTranslator_{batch.group_id}",
             model=GEMINI_MODEL,
             instruction=create_batch_instruction(batch, i),
             output_schema=TranslationOutput,
             output_key=f"translation_{i+1}",
-            description=f"Translates {batch.group_name} content ({batch.total_items} items)"
+            description=f"Translates {batch.group_name} content ({batch.total_items} items)",
+            after_agent_callback=length_validator  # Add character limit validation
         )
         all_agents.append(agent)
         print(f"   ✅ Created agent for {batch.group_name} ({batch.total_items} items)")
@@ -207,21 +212,45 @@ If all translations are good AND within character limits, output: REVIEW_STATUS:
 
     # STEP 3: DYNAMIC BATCH REGENERATION AGENT
     def dynamic_batch_regeneration_instruction(ctx):
-        return f"""You are a translation regeneration specialist. Based on review feedback, regenerate ONLY the flagged batches.
+        # Check for both review feedback and character limit violations
+        review_results = ctx.state.get('batch_review_results', 'No review available')
+        char_limit_feedback = ctx.state.get('regeneration_feedback', '')
+        
+        # Collect all violation info
+        violation_keys = [k for k in ctx.state.keys() if k.endswith('_length_violations')]
+        violation_info = ""
+        if violation_keys:
+            violation_info = "\nCHARACTER LIMIT VIOLATIONS:\n"
+            for key in violation_keys:
+                violations = ctx.state.get(key, {})
+                if violations.get('needs_regeneration'):
+                    violation_info += f"- {key}: {violations.get('total_violations', 0)} violations\n"
+        
+        return f"""You are a translation regeneration specialist. Regenerate translations that have issues.
 
-
-REVIEW RESULTS: {ctx.state.get('batch_review_results', 'No review available')}
+REVIEW RESULTS: {review_results}
+CHARACTER LIMIT FEEDBACK: {char_limit_feedback}
+{violation_info}
 TARGET LANGUAGE: {ctx.state.get('target_language', 'Portuguese')}
 GLOSSARY TERMS: {ctx.state.get('glossary_terms', {})}
 BRAND TERMS: {ctx.state.get('brand_terms', [])}
 
 
 INSTRUCTIONS:
-1. Parse the review results to identify flagged batches
+1. Parse the review results and character limit violations to identify flagged batches
 2. For each flagged batch, regenerate the translation addressing the specific feedback
-3. Only regenerate batches that were flagged for revision
+3. CRITICAL: Respect character limits for UI compatibility:
+   - Headers/Buttons: Original length + 5 characters maximum
+   - Content: Original length + 20 characters maximum
 4. Keep brand terms unchanged: {', '.join(brand_terms)}
 5. Remove format markers [BUTTON], [HEADER], [CONTENT] from output
+6. Use concise, natural language that fits within limits
+
+REGENERATION STRATEGIES FOR CHARACTER LIMITS:
+- Use shorter synonyms (e.g., "Configurações" instead of "Configurações do Sistema")
+- Abbreviate when appropriate (e.g., "Info" instead of "Informações")
+- Remove unnecessary words while preserving meaning
+- For buttons: Use imperative verbs (e.g., "Comprar" instead of "Comprar Agora" if space is tight)
 
 
 **Output Format:**
@@ -239,8 +268,7 @@ INSTRUCTIONS:
 }}
 ```
 
-
-If no batches were flagged, output: NO_REGENERATION_NEEDED"""
+If no batches need regeneration, output: NO_REGENERATION_NEEDED"""
 
     dynamic_batch_regeneration_agent = LlmAgent(
         name="DynamicBatchRegenerationAgent",
