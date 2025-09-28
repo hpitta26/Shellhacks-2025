@@ -1,203 +1,327 @@
-""""
-Idea --> Rebuild professional translation workflow using AI Agents
-
-Flow:
-1) Customer pushes content changes to CMS or DB --> it fires our localized workflow
-
-2a) Case 1: small changes (single paragraph, sentence, button addition/change)
-    - Build relevant context window (Section Group) --> give the translator enough context to make the small translation since its meaning is dependent on the surrounding text
-
-2b) Case 2: large changes (multiple paragraphs, full sections, pages)
-    - Separate into groups (by section) for parallized translation
-
-** NOTE: Context curator agent would go here, but ignore for now **
-
-3) BATCH TRANSLATION AGENTS
-    - Translates all batches and follows relevant comments which have been cached in previous runs (glossary terms, brand terms, repeated keywords that need to be consistent throughout the app)
-    - If unsure about something, writes Clarifying Questions to the STATE OBJECT (this mimics the human process of the translator asking clarifying questions to the customer)
-
-4) BATCH REVIEWER AGENT
-    - IF clarifying questions are present it will consult the context of the website (and write answers to the STATE OBJECT and recall translation for that batch)
-    - ELSE it will review the translation and ensure that it abides by the rubric
-        - IF the translation is good, it will output the translation and set the batch to complete
-        - ELSE flag certain content for review and write comments to the STATE OBJECT that will be helpful for the translator, once full batch it done --> REVIEW AGAIN
-
-5) SAVE FINAL TRANSLATION TO DATABASE
+# !/usr/bin/env python3
 """
+Content-Agnostic Translation Workflow
+====================================
+Core agent workflow that dynamically adapts to any website structure.
+- Automatically detects content groups and creates context-aware agents
+- Generates specialized instructions based on content type and context
+- Dynamically scales to any number of groups and content types
+- Processes batches in optimal parallel groups for efficiency
 
-import asyncio
+
+FEATURES:
+- Content-aware agent instructions (navigation, headers, content, buttons)
+- Dynamic brand term and glossary integration
+- Adaptive parallel grouping based on content relationships
+- Fully content-agnostic and scalable
+"""
 import os
-from google.adk.agents import LoopAgent, LlmAgent, BaseAgent, SequentialAgent
-from google.genai import types
-from google.adk.runners import InMemoryRunner
-from google.adk.agents.invocation_context import InvocationContext
-from google.adk.tools.tool_context import ToolContext
-from typing import AsyncGenerator, Optional
-from google.adk.events import Event, EventActions
+from typing import Dict, List
+from pydantic import BaseModel, Field
+from .batch_processor import ContentBatchProcessor
+from google.adk.agents import LlmAgent, ParallelAgent, SequentialAgent
 
-from google.adk.sessions import InMemorySessionService, Session
-from google.genai.types import Part, Content
-import time
+# Load environment variables
+try:
+    from dotenv import load_dotenv
 
-# --- Constants ---
-APP_NAME = "language_translator_app_v1"
-USER_ID = "translator_user_01"
-SESSION_ID_BASE = "translation_session"
+    if not load_dotenv():
+        load_dotenv("../.env")
+    print("✅ Loaded environment variables from .env file")
+except ImportError:
+    print("⚠️  python-dotenv not installed, using system environment variables only")
+
+# Configure Google AI API
+os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "FALSE"
+
+# Verify API key is set
+if not os.environ.get("GOOGLE_API_KEY"):
+    raise ValueError("GOOGLE_API_KEY environment variable is required")
+
+# Constants
 GEMINI_MODEL = "gemini-2.0-flash"
-
-# --- State Keys ---
-STATE_SOURCE_TEXT = "source_text"
-STATE_TARGET_LANGUAGE = "target_language"
-STATE_CURRENT_TRANSLATION = "current_translation"
-STATE_TRANSLATION_CRITIQUE = "translation_critique"
-
-# Define the exact phrase the Critic should use to signal completion
-COMPLETION_PHRASE = "Translation is accurate and fluent."
-
-# Initialize session with example text to translate
-session_service = InMemorySessionService()
-session = session_service.create_session(
-    app_name=APP_NAME,
-    user_id=USER_ID,
-    session_id=SESSION_ID_BASE,
-    state={
-        "source_text": "",
-        "target_language": "Spanish",  # Default to Spanish
-        "current_translation": "",
-        "translation_critique": ""
-    }
-)
+APP_NAME = "content_agnostic_translation_app"
 
 
-# --- Tool Definitions ---
-def set_target_language(tool_context: ToolContext, language: str):
-    """Sets the target language for translation."""
-    print(f"  [Tool Call] Setting target language to: {language}")
-    # Access state through tool_context.state, not tool_context.session.state
-    tool_context.state["target_language"] = language
-    return {"status": "success", "language_set": language}
+# Define Pydantic schema for structured translation output
+class TranslationItem(BaseModel):
+    value: str = Field(description="The translated text value")
 
 
-def get_target_language(tool_context: ToolContext):
-    """Gets the current target language."""
-    # Access state through tool_context.state
-    lang = tool_context.state.get("target_language", "Spanish")
-    return {"current_language": lang}
+class TranslationOutput(BaseModel):
+    items: List[TranslationItem] = Field(description="List of translated values in order")
 
 
-def exit_translation_loop(tool_context: ToolContext):
-    """Call this function ONLY when the translation critique indicates no further improvements are needed."""
-    print(f"  [Tool Call] exit_translation_loop triggered by {tool_context.agent_name}")
-    tool_context.actions.escalate = True
-    return {}
+def create_content_agnostic_workflow(content_file_path: str = "website_content.json"):
+    """
+    Create a fully content-agnostic translation workflow that adapts to any website structure.
+
+    Args:
+        content_file_path: Path to the website content JSON file
+
+    Returns:
+        tuple: (root_agent, batches, processor) - The main agent and supporting data
+    """
+    # Create batch processor and get batches
+    processor = ContentBatchProcessor(content_file_path)
+    processor.load_content()
+    batches = processor.create_batches()
+
+    num_batches = len(batches)
+    agents_per_group = 3  # Process 3 batches in parallel per group to manage API limits
+    num_parallel_groups = (num_batches + agents_per_group - 1) // agents_per_group  # Ceiling division
+
+    print(f"🔧 Creating content-agnostic workflow for {num_batches} content groups")
+
+    # Dynamically create content-aware agents for all batches
+    all_agents = []
+    brand_terms = processor.get_brand_terms()
+    glossary_terms = processor.get_glossary_terms()
+
+    for i, batch in enumerate(batches):
+        # Create context-aware instruction based on batch content
+        def create_batch_instruction(batch_info, batch_idx):
+            return lambda ctx: f"""You are a professional translator specializing in {batch_info.group_name.lower()}.
 
 
-# --- Agent Definitions ---
+       CONTEXT: You are translating {batch_info.group_description} content for a wild life website.
+       GROUP: {batch_info.group_name} ({batch_info.total_items} items)
 
-# STEP 1: Initial Translator Agent with language detection
-initial_translator_agent = LlmAgent(
-    name="InitialTranslatorAgent",
-    model=GEMINI_MODEL,
-    include_contents='default',
-    instruction="""You are a professional translator with language detection and measurement localizing capabilities.
 
-    Your task is a two-step process:
-    1.  **Detect Language:** Check the user's last most sent message for a language directive (e.g., "to French", "in German").
-        - If a language is specified, call `set_target_language` with that language.
-        - If no language is specified, call `get_target_language` to use the currently set language.
+       Source content to translate:
+       {ctx.state.get(f'source_text_{batch_idx + 1}', '')}
 
-    2.  **Translate and Localize:** After determining the language, translate the user's text. You MUST also convert formats and units for a non-US audience.
-        * **Dates:** Convert `MM/DD/YYYY` to `DD/MM/YYYY`.
-        * **Measurements:** Convert imperial units to metric.
-            * miles -> kilometers (km)
-            * pounds (lbs) -> kilograms (kg)
-            * feet -> meters (m)
-        * **Temperature:** Convert Fahrenheit (°F) to Celsius (°C).
 
-    3.  **Output:** Output ONLY the final, translated, and localized text. Do not include original values, explanations, or commentary.
 
-    Examples:
-    User: "Hello" → Check language, translate to current/default, output: "Hola"
-    User: "Hello in French" → Set to French, output: "Bonjour"
-    User: "Weather is nice to German" → Set to German, output: "Das Wetter ist schön",
-    description="Detects target language and performs initial translation.",
-    tools=[set_target_language, get_target_language],
-    output_key=STATE_CURRENT_TRANSLATION
 
-    **Example Workflow:**
-    User: "The package weighs 10 pounds and must be delivered 50 miles by 12/31/2024 to French"
-    You:
-    1) Call set_target_language("French")
-    2) Output: "Le colis pèse 4.54 kg et doit être livré à 80.47 km d'ici le 31/12/2024."
-"""
-)
-# STEP 2a: Translation Critic Agent
-translation_critic_agent = LlmAgent(
-    name="TranslationCriticAgent",
-    model=GEMINI_MODEL,
-    include_contents='default',
-    instruction=f"""You are a multilingual translation quality reviewer.
+       CRITICAL RULES:
+       1. Keep brand terms unchanged: {', '.join(brand_terms)}
+      3. Extract ONLY the text after format markers [BUTTON], [HEADER], [CONTENT] - DO NOT include the markers
+       4. Translate EVERY SINGLE item in the input - do not skip any
+       6. Maintain the tone appropriate for {batch_info.group_name.lower()} content
+       7. Return JSON with ALL translated values in order
 
-    Look at the current translation that was just produced.
-    Based on the conversation context, determine what language it's supposed to be in.
 
-    Evaluate the translation for:
-    1. Grammar - Is it grammatically correct in that language?
-    2. Fluency - Does it sound natural in that language?
+       CONTENT TYPE GUIDANCE:
+       - Navigation items: Keep concise and clear
+       - Headers: Maintain impact and clarity
+       - Content: Preserve meaning and engagement
+       - Buttons: Use action-oriented language
 
-    IF there are issues:
-    - Output specific corrections
-    - Be concise and specific
 
-    IF the translation looks good:
-    - Output EXACTLY: {COMPLETION_PHRASE}
-    - Nothing else""",
-    description="Reviews translation quality.",
-    output_key=STATE_TRANSLATION_CRITIQUE
-)
+       Example input: "[BUTTON] The Vault\\n[BUTTON] My Hands\\n[CONTENT] Welcome"
+       Example output: {{"items": [{{"value": "O Vault"}}, {{"value": "Minhas Mãos"}}, {{"value": "Bem-vindo"}}]}}"""
 
-# STEP 2b: Translation Refiner Agent
-translation_refiner_agent = LlmAgent(
-    name="TranslationRefinerAgent",
-    model=GEMINI_MODEL,
-    include_contents='default',
-    instruction=f"""You are a multilingual translation refiner.
+        agent = LlmAgent(
+            name=f"BatchTranslator_{batch.group_id}",
+            model=GEMINI_MODEL,
+            instruction=create_batch_instruction(batch, i),
+            output_schema=TranslationOutput,
+            output_key=f"translation_{i + 1}",
+            description=f"Translates {batch.group_name} content ({batch.total_items} items)"
+        )
+        all_agents.append(agent)
+        print(f"   ✅ Created agent for {batch.group_name} ({batch.total_items} items)")
 
-    Look at the critique that was just provided.
+    # Group agents into parallel groups (3 agents per group)
+    parallel_groups = []
+    for group_idx in range(num_parallel_groups):
+        start_idx = group_idx * agents_per_group
+        end_idx = min(start_idx + agents_per_group, num_batches)
+        group_agents = all_agents[start_idx:end_idx]
 
-    IF the critique says EXACTLY "{COMPLETION_PHRASE}":
-    - Call exit_translation_loop function
-    - Do not output any text
+        # Create descriptive group name based on content
+        group_batch_names = [batches[start_idx + i].group_name for i in range(len(group_agents))]
+        group_description = f"Translates {', '.join(group_batch_names)} in parallel"
 
-    ELSE:
-    - Apply the suggested corrections
-    - Output ONLY the improved translation
-    - Keep the same target language as the previous translation
-    - No explanations, just the refined translation text""",
-    description="Refines translation based on critique.",
-    tools=[exit_translation_loop],
-    output_key=STATE_CURRENT_TRANSLATION
-)
+        parallel_group = ParallelAgent(
+            name=f"ParallelGroup{group_idx + 1}",
+            sub_agents=group_agents,
+            description=group_description
+        )
+        parallel_groups.append(parallel_group)
+        print(f"   🔄 Group {group_idx + 1}: {', '.join(group_batch_names)} ({len(group_agents)} agents)")
 
-# STEP 2: Translation Refinement Loop
-translation_refinement_loop = LoopAgent(
-    name="TranslationRefinementLoop",
-    sub_agents=[
-        translation_critic_agent,
-        translation_refiner_agent,
-    ],
-    max_iterations=5
-)
+    # Create the main parallel translator (Step 1)
+    staged_parallel_translator = SequentialAgent(
+        name="DynamicStagedParallelTranslator",
+        sub_agents=parallel_groups,
+        description=f"Executes {num_batches} batch translations in {num_parallel_groups} staged parallel groups"
+    )
 
-# STEP 3: Overall Translation Pipeline
-root_agent = SequentialAgent(
-    name="IterativeTranslationPipeline",
-    sub_agents=[
-        initial_translator_agent,
-        translation_refinement_loop
-    ],
-    description="Translates English text to any language (default Spanish) with iterative quality refinement."
-)
+    # STEP 2: DYNAMIC BATCH REVIEW AGENT
+    def dynamic_batch_review_instruction(ctx):
+        # Get character limits from state
+        char_limits_data = {}
+        for i in range(num_batches):
+            char_limits_data[f"translation_{i + 1}"] = ctx.state.get(f'char_limits_{i + 1}', '')
 
-# Make agent available for ADK discovery
-__all__ = ["root_agent"]
+        # Dynamically build review for all available translations
+        translation_keys = [f"translation_{i + 1}" for i in range(num_batches)]
+        translations_text = chr(10).join([
+            f"- Group {i + 1}: {ctx.state.get(f'translation_{i + 1}', '[Not translated]')}"
+            for i in range(num_batches)
+        ])
+
+        return f"""You are a professional translation reviewer analyzing {num_batches} batch translations.
+
+
+REVIEW ALL TRANSLATIONS:
+{translations_text}
+
+
+CHARACTER LIMITS TO CHECK:
+{chr(10).join([f"Group {i + 1}: {char_limits_data[f'translation_{i + 1}']}" for i in range(num_batches)])}
+
+
+TARGET LANGUAGE: {ctx.state.get('target_language', 'Portuguese')}
+BRAND TERMS: {', '.join(brand_terms)}
+
+
+REVIEW CRITERIA:
+1. CHARACTER LIMITS: Check if ANY translation exceeds its character limit - if so, flag for revision
+2. Accuracy and fluency in target language
+3. Brand terms remain unchanged: {', '.join(brand_terms)}
+4. Format markers [BUTTON], [HEADER], [CONTENT] are removed from translations
+
+
+**CRITICAL**: If any translation is too long, immediately flag that group for revision.
+
+
+**Output Format:**
+REVIEW_STATUS: NEEDS_REVISION or APPROVED
+FEEDBACK:
+- **Group X:** [specific feedback if issues found]
+
+
+If all translations are good AND within character limits, output: REVIEW_STATUS: APPROVED"""
+
+    dynamic_batch_reviewer = LlmAgent(
+        name="DynamicBatchReviewer",
+        model=GEMINI_MODEL,
+        instruction=dynamic_batch_review_instruction,
+        output_key="batch_review_results",
+        description=f"Reviews all {num_batches} parallel translations and flags issues"
+    )
+
+    # STEP 3: DYNAMIC BATCH REGENERATION AGENT
+    def dynamic_batch_regeneration_instruction(ctx):
+        return f"""You are a translation regeneration specialist. Based on review feedback, regenerate ONLY the flagged batches.
+
+
+REVIEW RESULTS: {ctx.state.get('batch_review_results', 'No review available')}
+TARGET LANGUAGE: {ctx.state.get('target_language', 'Portuguese')}
+GLOSSARY TERMS: {ctx.state.get('glossary_terms', {})}
+BRAND TERMS: {ctx.state.get('brand_terms', [])}
+
+
+INSTRUCTIONS:
+1. Parse the review results to identify flagged batches
+2. For each flagged batch, regenerate the translation addressing the specific feedback
+3. Only regenerate batches that were flagged for revision
+4. Keep brand terms unchanged: {', '.join(brand_terms)}
+5. Remove format markers [BUTTON], [HEADER], [CONTENT] from output
+
+
+**Output Format:**
+```json
+{{
+ "batches": [
+   {{
+     "group_id": 1,
+     "items": [
+       {{"value": "translated text 1"}},
+       {{"value": "translated text 2"}}
+     ]
+   }}
+ ]
+}}
+```
+
+
+If no batches were flagged, output: NO_REGENERATION_NEEDED"""
+
+    dynamic_batch_regeneration_agent = LlmAgent(
+        name="DynamicBatchRegenerationAgent",
+        model=GEMINI_MODEL,
+        instruction=dynamic_batch_regeneration_instruction,
+        output_key="regenerated_translations",
+        description="Regenerates flagged batches with specific feedback"
+    )
+
+    # STEP 4: DYNAMIC FINAL REFINEMENT AGENT
+    def dynamic_final_refinement_instruction(ctx):
+        # Dynamically build final refinement for all translations
+        original_translations = chr(10).join([
+            f"- group_{i + 1}: {ctx.state.get(f'translation_{i + 1}', '[Not available]')}"
+            for i in range(num_batches)
+        ])
+
+        return f"""You are the final translation refinement specialist. Produce the final, polished translations.
+
+
+ORIGINAL TRANSLATIONS:
+{original_translations}
+
+
+REGENERATED TRANSLATIONS: {ctx.state.get('regenerated_translations', 'None')}
+REVIEW FEEDBACK: {ctx.state.get('batch_review_results', 'No feedback')}
+
+
+TASK:
+1. For each group, use the regenerated version if available, otherwise use the original
+2. Apply final polish and consistency checks across all {num_batches} groups
+3. Ensure all translations meet professional standards
+4. Maintain consistency in terminology and tone
+
+
+**Output:** Provide the final translations in this format:
+FINAL_TRANSLATIONS:
+- group_1: [final translation items]
+- group_2: [final translation items]
+{chr(10).join([f"- group_{i + 1}: [final translation items]" for i in range(2, num_batches)])}"""
+
+    dynamic_final_refinement_agent = LlmAgent(
+        name="DynamicFinalRefinementAgent",
+        model=GEMINI_MODEL,
+        instruction=dynamic_final_refinement_instruction,
+        output_key="final_translations",
+        description=f"Produces final polished translations for all {num_batches} groups"
+    )
+
+    # STEP 5: COMPLETE CONTENT-AGNOSTIC WORKFLOW
+    root_agent = SequentialAgent(
+        name="ContentAgnosticTranslationWorkflow",
+        sub_agents=[
+            staged_parallel_translator,  # Step 1: Translate all batches in staged parallel groups
+            dynamic_batch_reviewer,  # Step 2: Review all translations
+            dynamic_batch_regeneration_agent,  # Step 3: Regenerate flagged batches
+            dynamic_final_refinement_agent  # Step 4: Final refinement and polish
+        ],
+        description=f"Content-agnostic translation workflow: {num_batches} groups → staged parallel → review → regeneration → refinement"
+    )
+
+    print(f"🎯 Content-agnostic workflow created: {num_batches} groups → {num_parallel_groups} parallel stages")
+    print("✅ Content-Agnostic Translation Workflow Ready!")
+    print(f"   📊 {num_batches} content groups detected")
+    print(f"   🔄 {num_parallel_groups} parallel stages created")
+    print(f"   🔍 Review and refinement pipeline included")
+    print(f"   🎯 Fully dynamic and content-agnostic")
+
+    return root_agent, batches, processor
+
+
+# Create the main workflow (can be imported by test scripts)
+root_agent, content_batches, content_processor = create_content_agnostic_workflow()
+
+# Export key components
+__all__ = [
+    "root_agent",
+    "content_batches",
+    "content_processor",
+    "create_content_agnostic_workflow",
+    "TranslationItem",
+    "TranslationOutput",
+    "APP_NAME",
+    "GEMINI_MODEL"
+]

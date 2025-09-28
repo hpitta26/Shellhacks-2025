@@ -13,7 +13,24 @@ const App = () => {
           { type: "button", value: "Start Your Conservation Journey" }
         ]
       },
-
+        {
+        section_id: "programs",
+        title: "Conservation Programs",
+        content: [
+          { type: "header", value: "Our Conservation Programs" },
+          { type: "dual_box", value: JSON.stringify({
+            left: {
+              title: "Field Research",
+              content: "Our field teams conduct vital research on endangered species behavior, migration patterns, and habitat needs. This data directly informs our conservation strategies and helps us understand how to best protect vulnerable wildlife populations."
+            },
+            right: {
+              title: "Community Outreach",
+              content: "We work directly with local communities to develop sustainable practices that benefit both people and wildlife. Through education programs and economic incentives, we create partnerships that ensure long-term conservation success."
+            }
+          }) },
+          { type: "button", value: "Learn About All Programs" }
+        ]
+      },
       {
         section_id: "mission",
         title: "Mission Section",
@@ -151,35 +168,25 @@ const App = () => {
                         </p>
                       </div>
                     )}
-                   {item.type === 'dual_box' && (
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
-    {(() => {
-      try {
-        const boxData = JSON.parse(item.value);
-        return (
-          <>
-            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-6 hover:shadow-lg transition-all duration-300">
-              <h4 className="text-xl font-bold text-emerald-800 mb-3">{boxData.left.title}</h4>
-              <p className="text-gray-700 leading-relaxed">{boxData.left.content}</p>
-            </div>
-            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6 hover:shadow-lg transition-all duration-300">
-              <h4 className="text-xl font-bold text-blue-800 mb-3">{boxData.right.title}</h4>
-              <p className="text-gray-700 leading-relaxed">{boxData.right.content}</p>
-            </div>
-          </>
-        );
-      } catch (error) {
-        // Handle invalid JSON (translation failed)
-        return (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-            <h4 className="text-xl font-bold text-red-800 mb-3">Translation Error</h4>
-            <p className="text-gray-700">{item.value}</p>
-          </div>
-        );
-      }
-    })()}
-  </div>
-)}
+                    {item.type === 'dual_box' && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+                        {(() => {
+                          const boxData = JSON.parse(item.value);
+                          return (
+                            <>
+                              <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-6 hover:shadow-lg transition-all duration-300">
+                                <h4 className="text-xl font-bold text-emerald-800 mb-3">{boxData.left.title}</h4>
+                                <p className="text-gray-700 leading-relaxed">{boxData.left.content}</p>
+                              </div>
+                              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6 hover:shadow-lg transition-all duration-300">
+                                <h4 className="text-xl font-bold text-blue-800 mb-3">{boxData.right.title}</h4>
+                                <p className="text-gray-700 leading-relaxed">{boxData.right.content}</p>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
                     {item.type === 'button' && (
                       <button className={`${getButtonStyle(sectionIndex)} group-button`}>
                         <span className="relative z-10 flex items-center gap-2">
