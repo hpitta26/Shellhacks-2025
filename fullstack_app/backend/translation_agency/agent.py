@@ -724,3 +724,5 @@ def run_translation_pipeline(content: Dict = None, target_language: str = "Spani
     return runner, session
 
 __all__ = ["root_agent", "create_translation_session", "run_translation_pipeline"]
+
+#https://docs.google.com/document/d/1ZfRmcNxQJsFhMAbRm1rb9ffiiNfKjJqIStANlgvK0xk/edit?usp=sharing
