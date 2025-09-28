@@ -5,6 +5,8 @@ import asyncio
 import json
 import uuid
 import os
+import sys
+import tempfile
 from typing import Optional, List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,8 +20,16 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Import the translation agent
-from translation_agency.agent import root_agent, APP_NAME
+# Add project root to Python path so we can import translation_agency_v2
+project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+sys.path.append(project_root)
+
+# Import the v2 translation workflow with correct content file path
+from translation_agency_v2.agent import create_content_agnostic_workflow, APP_NAME
+
+# Create the workflow with the correct path to website_content.json
+content_file_path = os.path.join(project_root, 'translation_agency_v2', 'website_content.json')
+root_agent, content_batches, content_processor = create_content_agnostic_workflow(content_file_path)
 
 # RUN APP --> python -m uvicorn main:app --reload
 # API DOCS --> http://127.0.0.1:8000/docs
@@ -77,6 +87,124 @@ class SectionsTranslationResponse(BaseModel):
 
 # Initialize session service
 session_service = InMemorySessionService()
+
+def convert_frontend_to_v2_format(frontend_sections):
+    """Convert frontend section format to v2 agent format"""
+    pages = {}
+    
+    for i, section in enumerate(frontend_sections, 1):
+        group_key = f"group_{i}"
+        
+        # Access Pydantic model attributes directly (not with .get())
+        display_title = getattr(section, 'display_title', None)
+        title = getattr(section, 'title', None)
+        meta_data = display_title or title or f"Section {i}"
+        
+        group_data = {
+            "meta_data": meta_data
+        }
+        
+        # Convert content items to v2 format
+        for j, content_item in enumerate(section.content, 1):
+            item_key = f"item_{j}"
+            group_data[item_key] = {
+                "type": content_item.type,
+                "value": content_item.value
+            }
+        
+        pages[group_key] = group_data
+    
+    return {
+        "website_metadata": {
+            "site_name": "Demo Website",
+            "language": "en",
+            "locale": "en-US",
+            "version": "1.0.0"
+        },
+        "pages": pages
+    }
+
+def convert_v2_to_frontend_format(v2_state, original_sections):
+    """Convert v2 agent results back to frontend format"""
+    translated_sections = []
+    
+    for i, original_section in enumerate(original_sections):
+        # Look for translation results in v2 state
+        translation_key = f"translation_{i+1}"
+        if translation_key in v2_state:
+            translation_data = v2_state[translation_key]
+            
+            # Parse the v2 translation results
+            if isinstance(translation_data, str):
+                try:
+                    translation_json = json.loads(translation_data)
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse translation {i+1}, using original")
+                    translation_json = {"items": []}
+            else:
+                translation_json = translation_data
+            
+            # Convert back to frontend format
+            translated_content = []
+            items = translation_json.get("items", [])
+            
+            for j, original_content in enumerate(original_section.content):
+                if j < len(items):
+                    # Use translated value
+                    translated_content.append(SectionItem(
+                        type=original_content.type,
+                        value=items[j]["value"]
+                    ))
+                else:
+                    # Fallback to original if translation missing
+                    translated_content.append(original_content)
+            
+            translated_sections.append(Section(
+                section_id=original_section.section_id,
+                title=original_section.title,
+                display_title=original_section.display_title,
+                content=translated_content
+            ))
+        else:
+            # No translation found, return original
+            translated_sections.append(original_section)
+    
+    return translated_sections
+def create_v2_session_state(v2_content, target_language):
+    """Create proper session state for v2 agent"""
+    from translation_agency_v2.batch_processor import ContentBatchProcessor
+    
+    # Create a temporary content file (in memory)
+    import tempfile
+    import os
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(v2_content, f, indent=2)
+        temp_file = f.name
+    
+    try:
+        # Use the batch processor to create proper state
+        processor = ContentBatchProcessor(temp_file)
+        processor.load_content()
+        batches = processor.create_batches()
+        
+        # Create initial state like the v2 agent expects
+        initial_state = {
+            "target_language": target_language,
+            "brand_terms": processor.get_brand_terms(),
+            "glossary_terms": processor.get_glossary_terms(),
+            "total_batches": len(batches),
+        }
+        
+        # Add source content for each batch
+        for i, batch in enumerate(batches):
+            initial_state[f"source_text_{i+1}"] = batch.get_formatted_content()
+            
+        return initial_state
+        
+    finally:
+        # Clean up temp file
+        os.unlink(temp_file)
 
 @app.on_event("startup")
 async def startup_event():
@@ -193,91 +321,88 @@ async def translate_single_item(text: str, target_language: str, base_session_id
 @app.post("/translate-sections", response_model=SectionsTranslationResponse)
 async def translate_sections(request: SectionsTranslationRequest):
     """
-    Translate multiple website sections containing different content types
+    Translate multiple website sections using the v2 batch translation agent
     """
     try:
-        logger.info(f"Sections translation request: {len(request.sections)} sections -> {request.target_language}")
+        logger.info(f"V2 Sections translation request: {len(request.sections)} sections -> {request.target_language}")
         
-        session_id = f"sections_{uuid.uuid4().hex[:8]}"
+        session_id = f"v2_sections_{uuid.uuid4().hex[:8]}"
         user_id = "api_user"
         
-        translated_sections = []
+        # Convert frontend format to v2 format
+        v2_content = convert_frontend_to_v2_format(request.sections)
+        logger.info(f"Converted to v2 format: {len(v2_content['pages'])} groups")
         
-        # Process each section
-        for section in request.sections:
-            translated_content = []
-            
-            # Translate display_title using helper function
-            translated_display_title = await translate_single_item(
-                section.display_title, request.target_language, session_id, user_id
-            )
-            
-            # Translate each content item in the section
-            for item in section.content:
-                if item.type in ['header', 'content', 'button']:
-                    # Use helper function for simple items
-                    translated_text = await translate_single_item(
-                        item.value, request.target_language, session_id, user_id
-                    )
-                    translated_content.append(SectionItem(type=item.type, value=translated_text))
-
-                elif item.type == 'dual_box':
-                    # Handle dual_box with nested JSON (from file 1)
-                    try:
-                        box_data = json.loads(item.value)
-
-                        # Translate left box
-                        if 'left' in box_data:
-                            box_data['left']['title'] = await translate_single_item(
-                                box_data['left']['title'], request.target_language, session_id, user_id
-                            )
-                            box_data['left']['content'] = await translate_single_item(
-                                box_data['left']['content'], request.target_language, session_id, user_id
-                            )
-
-                        # Translate right box
-                        if 'right' in box_data:
-                            box_data['right']['title'] = await translate_single_item(
-                                box_data['right']['title'], request.target_language, session_id, user_id
-                            )
-                            box_data['right']['content'] = await translate_single_item(
-                                box_data['right']['content'], request.target_language, session_id, user_id
-                            )
-
-                        # Convert back to JSON string
-                        translated_json = json.dumps(box_data)
-                        translated_content.append(SectionItem(type=item.type, value=translated_json))
-
-                    except json.JSONDecodeError:
-                        # If JSON parsing fails, keep original
-                        translated_content.append(item)
-
-                else:
-                    # For any other unknown types, keep original
-                    translated_content.append(item)
-            
-            translated_sections.append(Section(
-                section_id=section.section_id,
-                title=section.title,
-                display_title=translated_display_title,
-                content=translated_content
-            ))
+        # Create proper session state for v2 agent
+        initial_state = create_v2_session_state(v2_content, request.target_language)
         
-        logger.info(f"Sections translation completed: {len(translated_sections)} sections")
-        
-        return SectionsTranslationResponse(
-            translated_sections=translated_sections,
-            target_language=request.target_language,
-            total_sections=len(translated_sections)
+        # Create session
+        session = await session_service.create_session(
+            app_name=APP_NAME,
+            user_id=user_id,
+            session_id=session_id,
+            state=initial_state
         )
+        
+        logger.info(f"✅ V2 Session created: {session.id}")
+        
+        # Create runner with the v2 translation agent
+        runner = Runner(
+            agent=root_agent,
+            app_name=APP_NAME,
+            session_service=session_service
+        )
+        
+        # Create user message to trigger v2 workflow
+        user_message = Content(parts=[Part(text=f"Please translate all content batches to {request.target_language}")])
+        
+        logger.info("🔄 Running V2 batch translation workflow...")
+        
+        # Run the v2 agent workflow
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=user_message
+        ):
+            if event.is_final_response() and event.content:
+                logger.info(f"✅ V2 Stage completed by {event.author}")
+        
+        # Get final session state with translations
+        final_session = await session_service.get_session(
+            app_name=APP_NAME,
+            user_id=user_id,
+            session_id=session_id
+        )
+        
+        if final_session:
+            state = final_session.state if isinstance(final_session.state, dict) else final_session.state.to_dict()
+            
+            # Check what translations we got
+            translation_keys = [k for k in state.keys() if k.startswith('translation_')]
+            logger.info(f"📊 V2 Completed translations: {len(translation_keys)}/{len(request.sections)}")
+            
+            # Convert v2 results back to frontend format
+            translated_sections = convert_v2_to_frontend_format(state, request.sections)
+            
+            logger.info(f"✅ V2 Translation completed: {len(translated_sections)} sections")
+            
+            return SectionsTranslationResponse(
+                translated_sections=translated_sections,
+                target_language=request.target_language,
+                total_sections=len(translated_sections)
+            )
+        else:
+            logger.error("❌ Failed to retrieve final session")
+            raise HTTPException(status_code=500, detail="Failed to retrieve translation results")
         
     except Exception as e:
-        logger.error(f"Sections translation failed: {str(e)}")
+        logger.error(f"❌ V2 Sections translation failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
-            detail=f"Sections translation failed: {str(e)}"
+            detail=f"V2 Sections translation failed: {str(e)}"
         )
-
 @app.get("/health")
 async def health_check():
     """Detailed health check endpoint"""
