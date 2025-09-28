@@ -68,7 +68,7 @@ async def test_staged_parallel():
     # Add source content for each batch
     for i, batch in enumerate(batches):
         initial_state[f"source_text_{i+1}"] = batch.get_formatted_content()
-        print(f"   📝 Added {batch.group_name}: {len(batch.get_formatted_content())} chars, {batch.total_items} items")
+
     
     session = await session_service.create_session(
         app_name=APP_NAME,

@@ -7,6 +7,8 @@ import json
 from typing import List, Dict, Any
 from dataclasses import dataclass
 
+
+    
 @dataclass
 class TranslationItem:
     """Individual item to be translated"""
@@ -16,6 +18,7 @@ class TranslationItem:
     context: str
     group_id: str
     group_name: str
+    original_length: int = 0
 
 @dataclass 
 class TranslationBatch:
@@ -92,13 +95,17 @@ class ContentBatchProcessor:
                     continue
                     
                 if isinstance(item_data, dict) and 'type' in item_data and 'value' in item_data:
+                    
+                    original_length = len(item_data['value'])
+
                     item = TranslationItem(
                         id=f"{group_key}_{item_key}",
                         type=item_data['type'],
                         content=item_data['value'],
                         context=f"{group_name} - {item_key}",
                         group_id=group_key,
-                        group_name=group_name
+                        group_name=group_name,
+                        original_length=original_length
                     )
                     items.append(item)
             

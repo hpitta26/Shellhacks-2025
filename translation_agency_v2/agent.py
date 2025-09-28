@@ -78,28 +78,30 @@ def create_content_agnostic_workflow(content_file_path: str = "website_content.j
         def create_batch_instruction(batch_info, batch_idx):
             return lambda ctx: f"""You are a professional translator specializing in {batch_info.group_name.lower()}.
 
-CONTEXT: You are translating {batch_info.group_description} content for a poker website.
-GROUP: {batch_info.group_name} ({batch_info.total_items} items)
+        CONTEXT: You are translating {batch_info.group_description} content for a poker website.
+        GROUP: {batch_info.group_name} ({batch_info.total_items} items)
 
-Source content to translate:
-{ctx.state.get(f'source_text_{batch_idx+1}', '')}
+        Source content to translate:
+        {ctx.state.get(f'source_text_{batch_idx+1}', '')}
 
-CRITICAL RULES:
-1. Keep brand terms unchanged: {', '.join(brand_terms)}
-2. Use poker terminology correctly: {', '.join([f"{k} = {v}" for k, v in glossary_terms.items()])}
-3. Extract ONLY the text after format markers [BUTTON], [HEADER], [CONTENT] - DO NOT include the markers
-4. Translate EVERY SINGLE item in the input - do not skip any
-5. Maintain the tone appropriate for {batch_info.group_name.lower()} content
-6. Return JSON with ALL translated values in order
+ 
 
-CONTENT TYPE GUIDANCE:
-- Navigation items: Keep concise and clear
-- Headers: Maintain impact and clarity
-- Content: Preserve meaning and engagement
-- Buttons: Use action-oriented language
+        CRITICAL RULES:
+        1. Keep brand terms unchanged: {', '.join(brand_terms)}
+        2. Use poker terminology correctly: {', '.join([f"{k} = {v}" for k, v in glossary_terms.items()])}
+        3. Extract ONLY the text after format markers [BUTTON], [HEADER], [CONTENT] - DO NOT include the markers
+        4. Translate EVERY SINGLE item in the input - do not skip any
+        6. Maintain the tone appropriate for {batch_info.group_name.lower()} content
+        7. Return JSON with ALL translated values in order
 
-Example input: "[BUTTON] The Vault\\n[BUTTON] My Hands\\n[CONTENT] Welcome"
-Example output: {{"items": [{{"value": "O Vault"}}, {{"value": "Minhas Mãos"}}, {{"value": "Bem-vindo"}}]}}"""
+        CONTENT TYPE GUIDANCE:
+        - Navigation items: Keep concise and clear
+        - Headers: Maintain impact and clarity
+        - Content: Preserve meaning and engagement
+        - Buttons: Use action-oriented language
+
+        Example input: "[BUTTON] The Vault\\n[BUTTON] My Hands\\n[CONTENT] Welcome"
+        Example output: {{"items": [{{"value": "O Vault"}}, {{"value": "Minhas Mãos"}}, {{"value": "Bem-vindo"}}]}}"""
         
         agent = LlmAgent(
             name=f"BatchTranslator_{batch.group_id}",
@@ -140,6 +142,11 @@ Example output: {{"items": [{{"value": "O Vault"}}, {{"value": "Minhas Mãos"}},
     
     # STEP 2: DYNAMIC BATCH REVIEW AGENT
     def dynamic_batch_review_instruction(ctx):
+        # Get character limits from state
+        char_limits_data = {}
+        for i in range(num_batches):
+            char_limits_data[f"translation_{i+1}"] = ctx.state.get(f'char_limits_{i+1}', '')
+        
         # Dynamically build review for all available translations
         translation_keys = [f"translation_{i+1}" for i in range(num_batches)]
         translations_text = chr(10).join([
@@ -152,24 +159,26 @@ Example output: {{"items": [{{"value": "O Vault"}}, {{"value": "Minhas Mãos"}},
 REVIEW ALL TRANSLATIONS:
 {translations_text}
 
+CHARACTER LIMITS TO CHECK:
+{chr(10).join([f"Group {i+1}: {char_limits_data[f'translation_{i+1}']}" for i in range(num_batches)])}
+
 TARGET LANGUAGE: {ctx.state.get('target_language', 'Portuguese')}
-GLOSSARY TERMS: {ctx.state.get('glossary_terms', {})}
-BRAND TERMS: {ctx.state.get('brand_terms', [])}
+BRAND TERMS: {', '.join(brand_terms)}
 
 REVIEW CRITERIA:
-1. Accuracy and fluency in target language
-2. Consistency with glossary terms
+1. CHARACTER LIMITS: Check if ANY translation exceeds its character limit - if so, flag for revision
+2. Accuracy and fluency in target language
 3. Brand terms remain unchanged: {', '.join(brand_terms)}
 4. Format markers [BUTTON], [HEADER], [CONTENT] are removed from translations
-5. Contextual appropriateness for each content section
-6. Completeness - all items translated
+
+**CRITICAL**: If any translation is too long, immediately flag that group for revision.
 
 **Output Format:**
 REVIEW_STATUS: NEEDS_REVISION or APPROVED
 FEEDBACK:
 - **Group X:** [specific feedback if issues found]
 
-If all translations are good, output: REVIEW_STATUS: APPROVED"""
+If all translations are good AND within character limits, output: REVIEW_STATUS: APPROVED"""
 
     dynamic_batch_reviewer = LlmAgent(
         name="DynamicBatchReviewer",
