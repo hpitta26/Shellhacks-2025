@@ -2,6 +2,7 @@
 FastAPI backend for translation service using Google ADK agent
 """
 import asyncio
+import json
 import uuid
 import os
 from typing import Optional, List
@@ -160,92 +161,106 @@ async def translate_text(request: TranslationRequest):
             detail=f"Translation failed: {str(e)}"
         )
 
+
 @app.post("/translate-sections", response_model=SectionsTranslationResponse)
 async def translate_sections(request: SectionsTranslationRequest):
-    """
-    Translate multiple website sections containing different content types
-    """
     try:
         logger.info(f"Sections translation request: {len(request.sections)} sections -> {request.target_language}")
-        
-        # Generate unique session ID
+
         session_id = f"sections_{uuid.uuid4().hex[:8]}"
         user_id = "api_user"
-        
+
         translated_sections = []
-        
-        # Process each section
+
         for section in request.sections:
             translated_content = []
-            
-            # Translate each content item in the section
+
             for item in section.content:
                 if item.type in ['header', 'content', 'button']:
-                    # Use your existing translation logic
-                    item_session_id = f"{session_id}_{section.section_id}_{len(translated_content)}"
-                    session = await session_service.create_session(
-                        app_name=APP_NAME,
-                        user_id=user_id,
-                        session_id=item_session_id,
-                        state={
-                            "source_text": item.value,
-                            "target_language": request.target_language,
-                            "current_translation": "",
-                            "translation_critique": ""
-                        }
-                    )
-                    
-                    runner = Runner(
-                        agent=root_agent,
-                        app_name=APP_NAME,
-                        session_service=session_service
-                    )
-                    
-                    user_message = Content(parts=[Part(text=f"Translate to {request.target_language}: {item.value}")])
-                    
-                    translated_text = ""
-                    async for event in runner.run_async(
-                        user_id=user_id,
-                        session_id=item_session_id,
-                        new_message=user_message
-                    ):
-                        if event.is_final_response():
-                            translated_text = event.content.parts[0].text if event.content and event.content.parts else item.value
-                            break
-                    
-                    # Get final translation from session state
-                    updated_session = await session_service.get_session(
-                        app_name=APP_NAME,
-                        user_id=user_id,
-                        session_id=item_session_id
-                    )
-                    final_translated_text = updated_session.state.get("current_translation", translated_text)
-                    
-                    translated_content.append(SectionItem(type=item.type, value=final_translated_text))
+                    # Existing translation logic for simple items
+                    translated_text = await translate_single_item(item.value, request.target_language, session_id,
+                                                                  user_id)
+                    translated_content.append(SectionItem(type=item.type, value=translated_text))
+
+                elif item.type == 'dual_box':
+                    # Handle dual_box with nested JSON
+                    try:
+                        box_data = json.loads(item.value)
+
+                        # Translate left box
+                        if 'left' in box_data:
+                            box_data['left']['title'] = await translate_single_item(
+                                box_data['left']['title'], request.target_language, session_id, user_id
+                            )
+                            box_data['left']['content'] = await translate_single_item(
+                                box_data['left']['content'], request.target_language, session_id, user_id
+                            )
+
+                        # Translate right box
+                        if 'right' in box_data:
+                            box_data['right']['title'] = await translate_single_item(
+                                box_data['right']['title'], request.target_language, session_id, user_id
+                            )
+                            box_data['right']['content'] = await translate_single_item(
+                                box_data['right']['content'], request.target_language, session_id, user_id
+                            )
+
+                        # Convert back to JSON string
+                        translated_json = json.dumps(box_data)
+                        translated_content.append(SectionItem(type=item.type, value=translated_json))
+
+                    except json.JSONDecodeError:
+                        # If JSON parsing fails, keep original
+                        translated_content.append(item)
+
                 else:
-                    # For other types like 'dual_box', keep original for now
+                    # For any other unknown types, keep original
                     translated_content.append(item)
-            
+
             translated_sections.append(Section(
                 section_id=section.section_id,
                 title=section.title,
                 content=translated_content
             ))
-        
-        logger.info(f"Sections translation completed: {len(translated_sections)} sections")
-        
+
         return SectionsTranslationResponse(
             translated_sections=translated_sections,
             target_language=request.target_language,
             total_sections=len(translated_sections)
         )
-        
+
     except Exception as e:
         logger.error(f"Sections translation failed: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Sections translation failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Sections translation failed: {str(e)}")
+
+
+# Helper function to translate a single text item
+async def translate_single_item(text: str, target_language: str, base_session_id: str, user_id: str) -> str:
+    item_session_id = f"{base_session_id}_{uuid.uuid4().hex[:4]}"
+
+    session = await session_service.create_session(
+        app_name=APP_NAME,
+        user_id=user_id,
+        session_id=item_session_id,
+        state={
+            "source_text": text,
+            "target_language": target_language,
+            "current_translation": "",
+            "translation_critique": ""
+        }
+    )
+
+    runner = Runner(agent=root_agent, app_name=APP_NAME, session_service=session_service)
+    user_message = Content(parts=[Part(text=f"Translate to {target_language}: {text}")])
+
+    translated_text = ""
+    async for event in runner.run_async(user_id=user_id, session_id=item_session_id, new_message=user_message):
+        if event.is_final_response():
+            translated_text = event.content.parts[0].text if event.content and event.content.parts else text
+            break
+
+    updated_session = await session_service.get_session(app_name=APP_NAME, user_id=user_id, session_id=item_session_id)
+    return updated_session.state.get("current_translation", translated_text)
 
 @app.get("/health")
 async def health_check():
