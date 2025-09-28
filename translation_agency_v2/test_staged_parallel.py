@@ -1,130 +1,77 @@
 #!/usr/bin/env python3
 """
-Test Dynamic Staged Parallel Translation
-=========================================
-RECOMMENDED TEST: Tests the core staged parallel functionality with ALL batches dynamically.
-Automatically detects the number of groups and creates the appropriate parallel structure.
-Processes batches in groups of 3 to manage API rate limits effectively.
+Test Content-Agnostic Dynamic Staged Parallel Translation
+=========================================================
+RECOMMENDED TEST: Fully content-agnostic translation workflow that adapts to any website structure.
+
+This test script imports the core workflow from agent.py and handles:
+- Pre-processing: Setting up session state with content
+- Execution: Running the content-agnostic workflow
+- Post-processing: Converting results to final translated website structure
 
 Usage: python test_staged_parallel.py
 """
 import asyncio
-import os
 import uuid
 import json
-from typing import Dict, List
-from pydantic import BaseModel, Field
-from batch_processor import ContentBatchProcessor
-from google.adk.agents import LlmAgent, ParallelAgent, SequentialAgent
+from datetime import datetime
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
 
-# Load environment variables
-try:
-    from dotenv import load_dotenv
-    if not load_dotenv():
-        load_dotenv("../.env")
-    print("✅ Loaded environment variables from .env file")
-except ImportError:
-    print("⚠️  python-dotenv not installed, using system environment variables only")
-
-# Configure Google AI API
-os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "FALSE"
-
-# Verify API key is set
-if not os.environ.get("GOOGLE_API_KEY"):
-    raise ValueError("GOOGLE_API_KEY environment variable is required")
-
-# Define Pydantic schema for structured translation output
-class TranslationItem(BaseModel):
-    value: str = Field(description="The translated text value")
-
-class TranslationOutput(BaseModel):
-    items: List[TranslationItem] = Field(description="List of translated values in order")
+# Import the core workflow from agent.py
+from agent import root_agent, content_batches, content_processor, APP_NAME
 
 async def test_staged_parallel():
-    """Test staged parallel translation approach"""
+    """Test the content-agnostic staged parallel translation workflow"""
     
-    print("🧪 Testing Staged Parallel Translation")
+    print("🧪 Testing Content-Agnostic Staged Parallel Translation")
     print("=" * 50)
     
-    # Create batch processor and get batches
-    processor = ContentBatchProcessor("website_content.json")
-    processor.load_content()
-    batches = processor.create_batches()
+    # Use the imported workflow components
+    batches = content_batches
+    processor = content_processor
     
     num_batches = len(batches)
-    agents_per_group = 3  # Process 3 batches in parallel per group to manage API limits
-    num_parallel_groups = (num_batches + agents_per_group - 1) // agents_per_group  # Ceiling division
-    
-    print(f"📦 Processing all {num_batches} batches in {num_parallel_groups} staged parallel groups:")
+    print(f"📦 Processing all {num_batches} batches dynamically:")
     for i, batch in enumerate(batches):
         print(f"   {i+1}. {batch.batch_id}: {batch.group_name} ({batch.total_items} items)")
-    
-    # Dynamically create agents for all batches
-    all_agents = []
-    for i in range(num_batches):
-        agent = LlmAgent(
-            name=f"BatchTranslator_{i+1}",
-            model="gemini-2.0-flash",
-            instruction=lambda ctx, idx=i+1: f"""You are a professional translator. Translate ALL content items to Portuguese.
-
-Source content to translate:
-{ctx.state.get(f'source_text_{idx}', '')}
-
-CRITICAL RULES:
-1. Keep brand terms unchanged: Octopi, George, Vault, Trainer
-2. Extract ONLY the text after format markers [BUTTON], [HEADER], [CONTENT] - DO NOT include the markers
-3. Translate EVERY SINGLE item in the input - do not skip any
-4. Return JSON with ALL translated values in order
-
-Example input: "[BUTTON] The Vault\\n[BUTTON] My Hands\\n[CONTENT] Welcome"
-Example output: {{"items": [{{"value": "O Vault"}}, {{"value": "Minhas Mãos"}}, {{"value": "Bem-vindo"}}]}}""",
-            output_schema=TranslationOutput,
-            output_key=f"translation_{i+1}"
-        )
-        all_agents.append(agent)
-    
-    # Group agents into parallel groups (3 agents per group)
-    parallel_groups = []
-    for group_idx in range(num_parallel_groups):
-        start_idx = group_idx * agents_per_group
-        end_idx = min(start_idx + agents_per_group, num_batches)
-        group_agents = all_agents[start_idx:end_idx]
-        
-        parallel_group = ParallelAgent(
-            name=f"ParallelGroup{group_idx+1}",
-            sub_agents=group_agents,
-            description=f"Translates batches {start_idx+1}-{end_idx} in parallel"
-        )
-        parallel_groups.append(parallel_group)
-        print(f"   🔄 Group {group_idx+1}: Batches {start_idx+1}-{end_idx} ({len(group_agents)} agents)")
-    
-    # Create staged sequential agent with all parallel groups
-    staged_agent = SequentialAgent(
-        name="DynamicStagedParallelAgent",
-        sub_agents=parallel_groups,
-        description=f"Processes {num_batches} batches in {num_parallel_groups} staged parallel groups"
-    )
     
     # Setup session
     session_service = InMemorySessionService()
     session_id = str(uuid.uuid4())
     user_id = "test_user"
     
-    # Initial state with content for 6 batches
+    # Dynamic initial state based on actual content structure
+    brand_terms = processor.get_brand_terms()
+    glossary_terms = processor.get_glossary_terms()
+    
     initial_state = {
         "target_language": "Portuguese",
-        "brand_terms": processor.get_brand_terms()
+        "brand_terms": brand_terms,
+        "glossary_terms": glossary_terms,
+        "total_batches": num_batches,
+        "content_metadata": {
+            "total_groups": num_batches,
+            "total_items": sum(batch.total_items for batch in batches),
+            "group_info": {
+                f"group_{i+1}": {
+                    "name": batch.group_name,
+                    "description": batch.group_description,
+                    "items": batch.total_items,
+                    "types": list(set(item.type for item in batch.items))
+                } for i, batch in enumerate(batches)
+            }
+        }
     }
     
-    for i in range(num_batches):
-        batch = batches[i]
-        initial_state[f"source_text_{i+1}"] = batch.get_formatted_content()  # Full content, no truncation
+    # Add source content for each batch
+    for i, batch in enumerate(batches):
+        initial_state[f"source_text_{i+1}"] = batch.get_formatted_content()
+        print(f"   📝 Added {batch.group_name}: {len(batch.get_formatted_content())} chars, {batch.total_items} items")
     
     session = await session_service.create_session(
-        app_name="dynamic_staged_parallel_app",
+        app_name=APP_NAME,
         user_id=user_id,
         session_id=session_id,
         state=initial_state
@@ -133,8 +80,8 @@ Example output: {{"items": [{{"value": "O Vault"}}, {{"value": "Minhas Mãos"}},
     
     # Setup standard runner (no rate limiting with billing enabled)
     runner = Runner(
-        agent=staged_agent,
-        app_name="dynamic_staged_parallel_app",
+        agent=root_agent,
+        app_name=APP_NAME,
         session_service=session_service
     )
     
@@ -158,7 +105,7 @@ Example output: {{"items": [{{"value": "O Vault"}}, {{"value": "Minhas Mãos"}},
     
     # Check final state
     final_session = await session_service.get_session(
-        app_name="dynamic_staged_parallel_app",
+        app_name=APP_NAME,
         user_id=user_id,
         session_id=session.id
     )
@@ -177,9 +124,7 @@ Example output: {{"items": [{{"value": "O Vault"}}, {{"value": "Minhas Mãos"}},
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Load original structure
-        processor = ContentBatchProcessor("website_content.json")
-        processor.load_content()
+        # Use the imported processor
         original_content = processor.content_data
         
         # Create translated version - exact copy of original structure

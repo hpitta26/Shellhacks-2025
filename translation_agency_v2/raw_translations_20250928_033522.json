@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "timestamp": "20250928_010850",
+    "timestamp": "20250928_033522",
     "target_language": "Portuguese",
     "total_batches": 9,
     "workflow_type": "dynamic_staged_parallel_test"
@@ -37,88 +37,88 @@
     "translation_2": {
       "items": [
         {
-          "value": "Estudo de pôquer para todos, de iniciantes a elite"
+          "value": "Estudo de poker para todos, de iniciantes a elite"
         },
         {
           "value": "Intuitivo. Acessível. Divertido."
         },
         {
-          "value": "Comece a treinar agora"
+          "value": "Começar a treinar agora"
         }
       ]
     },
     "translation_3": {
       "items": [
         {
-          "value": "Parece uma ferramenta perfeita para estudar. Torna divertido, ao mesmo tempo que fornece boas informações."
+          "value": "Parece uma ferramenta perfeita para estudar. Torna o estudo divertido enquanto fornece boas informações."
         },
         {
-          "value": "É uma ferramenta incrível para aprender poker. E divertida também!"
+          "value": "É uma ferramenta de aprendizado de pôquer incrível. E divertida também!"
         },
         {
-          "value": "É a primeira vez que gosto de estudar. Isto é 10x mais divertido do que 'praticar' online!"
+          "value": "É a primeira vez que gosto de estudar. É 10x mais divertido do que 'praticar' online!"
         },
         {
-          "value": "Amo, amo, AMO Octopi! Obrigado a toda a equipa por criá-lo!"
+          "value": "Amo, amo, AMO o Octopi! Obrigado a toda a equipe por criá-lo!"
         },
         {
-          "value": "A utilização do Trainer sozinho já seria uma pechincha pelo dobro do preço!"
+          "value": "Só o uso do Trainer já valeria o dobro do preço!"
         },
         {
           "value": "Já usei outros Trainers antes, mas o Octopi faz mais sentido para mim - tão intuitivo!"
         },
         {
-          "value": "Octopi é a ferramenta de estudo GTO com o melhor custo-benefício do mercado e o que eu uso para melhorar o meu jogo."
+          "value": "O Octopi é a ferramenta de estudo de GTO com o melhor custo-benefício do mercado e é o que eu uso para melhorar meu jogo."
         },
         {
-          "value": "Inovador e revolucionário. A sua vibrante comunidade promove o crescimento onde a melhoria é divertida."
+          "value": "Inovador e revolucionário. Sua comunidade vibrante promove o crescimento onde a melhora é divertida."
         },
         {
-          "value": "Como treinador, uso o Octopi Vault para rever mesas finais com simulações. É um recurso incrível; recomendo vivamente!"
+          "value": "Como instrutor, uso o Octopi Vault para revisar mesas finais com sims. É um recurso incrível; recomendo fortemente!"
         },
         {
-          "value": "Octopi Poker ajudou-me a transformar a forma como estudo. Adoro o feedback instantâneo sobre como jogar da forma mais otimizada possível."
+          "value": "O Octopi Poker me ajudou a transformar a maneira como estudo. Adoro o feedback instantâneo sobre como jogar da forma mais otimizada possível."
         },
         {
-          "value": "Estudar um JOGO nunca deve ser assustador ou stressante. Octopi resolve ambos os problemas e torna o estudo do jogo divertido!"
+          "value": "Estudar um JOGO nunca deveria ser assustador ou estressante. O Octopi resolve esses dois problemas e torna o estudo do jogo divertido!"
         },
         {
-          "value": "Não é coincidência que o meu melhor ano de poker coincida com a subscrição do Octopi."
+          "value": "Não é coincidência que meu melhor ano de pôquer coincida com a assinatura do Octopi."
         },
         {
-          "value": "Ferramenta de estudo de poker absolutamente brilhante! E uma equipa de suporte excelente!"
+          "value": "Ferramenta de estudo de pôquer absolutamente brilhante! E uma equipe de suporte excelente!"
         },
         {
-          "value": "Adoro praticar contra o Trainer, especialmente para spots ICM FT - é divertido e aumenta a confiança em spots de high-stakes onde me falta experiência."
+          "value": "Adoro treinar contra o Trainer, especialmente para situações de ICM FT - é divertido e aumenta a confiança em situações de apostas altas onde me falta experiência."
         },
         {
-          "value": "Octopi Poker cria e reforça os ciclos de feedback certos para a tomada de decisões no poker, e é divertido!"
+          "value": "O Octopi Poker cria e reforça os loops de feedback certos para a tomada de decisões no pôquer, e é divertido!"
         }
       ]
     },
     "translation_4": {
       "items": [
         {
-          "value": "Octopi Store"
+          "value": "Loja Octopi"
         },
         {
-          "value": "Abrace o seu polvo interior e use com orgulho os produtos exclusivos da Octopi. Elegante e confortável, é feito para pessoas esforçadas como você."
+          "value": "Liberte o polvo que há em você e vista com orgulho os produtos exclusivos da Octopi. Elegantes e confortáveis, são feitos para jogadores dedicados como você."
         },
         {
-          "value": "Compre Agora"
+          "value": "Comprar Agora"
         }
       ]
     },
     "translation_5": {
       "items": [
         {
-          "value": "Mercado de Coaching"
+          "value": "Mercado de Treinamento"
         },
         {
-          "value": "Acesso direto aos melhores treinadores de pôquer para cada jogo, nível de habilidade e faixa de preço."
+          "value": "Acesso direto aos melhores treinadores de poker para cada jogo, nível de habilidade e preço."
         },
         {
-          "value": "Explorar o fórum agora"
+          "value": "Explorar Fórum Agora"
         }
       ]
     },
@@ -128,7 +128,7 @@
           "value": "O Vault"
         },
         {
-          "value": "Reviva a emoção do poker de apostas altas da Triton, PokerGO, WSOP e muito mais. Mais de 18 mil mãos e 2 mil simulações de ICM pré-flop e pós-flop para explorar nos formatos de jogo ao vivo e replay de HH."
+          "value": "Reviva a emoção do poker de apostas altas da Triton, PokerGO, WSOP e muito mais. Mais de 18 mil mãos e 2 mil simulações de ICM pré-flop e pós-flop para explorar em formato de jogo ao vivo e replay de HH."
         },
         {
           "value": "Ou, coloque suas habilidades à prova com nossa experiência imersiva de Trainer e compare suas jogadas com as dos jogadores reais, juntamente com as soluções de IA."
@@ -141,14 +141,14 @@
     "translation_7": {
       "items": [
         {
-          "value": "Tutoriais do Produto"
+          "value": "Tutoriais de Produtos"
         }
       ]
     },
     "translation_8": {
       "items": [
         {
-          "value": "exemplo de interação de um turno com George, o coach de IA da Octopi"
+          "value": "exemplo de uma interação de turno com George, o treinador de IA da Octopi"
         },
         {
           "value": "Pergunte ao George"
@@ -157,7 +157,7 @@
           "value": "Olá, sou o George, assistente de IA no mundo do poker. Pergunte-me qualquer coisa relacionada ao poker e tentarei ser útil no seu caminho para o domínio do poker!"
         },
         {
-          "value": "Como calculo as pot odds?"
+          "value": "Como calculo as probabilidades do pote?"
         },
         {
           "value": "Pergunte ao George"
