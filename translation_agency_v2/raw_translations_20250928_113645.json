@@ -1,0 +1,193 @@
+{
+  "metadata": {
+    "timestamp": "20250928_113645",
+    "target_language": "Portuguese",
+    "total_batches": 9,
+    "workflow_type": "dynamic_staged_parallel_test"
+  },
+  "raw_translations": {
+    "translation_1": {
+      "items": [
+        {
+          "value": "O Vault"
+        },
+        {
+          "value": "Minhas Mãos"
+        },
+        {
+          "value": "Análise"
+        },
+        {
+          "value": "Trainer"
+        },
+        {
+          "value": "Achar..."
+        },
+        {
+          "value": "Pergunte ao George"
+        },
+        {
+          "value": "Preços"
+        },
+        {
+          "value": "Saiba Mais"
+        }
+      ]
+    },
+    "translation_2": {
+      "items": [
+        {
+          "value": "Estudo de poker para todos: iniciantes a elite"
+        },
+        {
+          "value": "Intuitivo. Acessível. Divertido."
+        },
+        {
+          "value": "Comece a treinar agora"
+        }
+      ]
+    },
+    "translation_2_length_violations": {
+      "violations": [],
+      "total_violations": 0,
+      "needs_regeneration": true,
+      "batch_id": "batch_group_8"
+    },
+    "translation_3": {
+      "items": [
+        {
+          "value": "Parece uma ferramenta perfeita para estudar. Torna divertido enquanto fornece boas informações."
+        },
+        {
+          "value": "É uma ferramenta de aprendizado de poker incrível. E divertida também!"
+        },
+        {
+          "value": "É a primeira vez que gosto de estudar. É 10x mais divertido do que 'praticar' online!"
+        },
+        {
+          "value": "Amo, amo, AMO o Octopi! Obrigado a toda a equipe por criá-lo!"
+        },
+        {
+          "value": "O uso do Trainer sozinho já valeria o dobro do preço!"
+        },
+        {
+          "value": "Já usei outros Trainers antes, mas o Octopi faz mais sentido para mim - tão intuitivo!"
+        },
+        {
+          "value": "Octopi é a ferramenta de estudo GTO com o melhor custo-benefício do mercado e o que eu uso para melhorar."
+        },
+        {
+          "value": "Inovador e revolucionário. Sua comunidade vibrante promove o crescimento onde a melhoria é divertida."
+        },
+        {
+          "value": "Como coach, uso o Octopi Vault para revisar mesas finais com sims. É um recurso incrível; recomendo fortemente!"
+        },
+        {
+          "value": "O Octopi Poker me ajudou a transformar a forma como estudo. Adoro feedback instantâneo sobre como jogar da forma mais otimizada possível."
+        },
+        {
+          "value": "Estudar um JOGO nunca deveria ser assustador ou estressante. O Octopi resolve esses dois problemas e torna o estudo do jogo divertido!"
+        },
+        {
+          "value": "Não é coincidência que meu melhor ano de poker coincida com a assinatura do Octopi."
+        },
+        {
+          "value": "Ferramenta de estudo de poker absolutamente brilhante! E equipe de suporte excelente!"
+        },
+        {
+          "value": "Adoro treinar contra o trainer, especialmente para spots de ICM FT - é divertido e aumenta a confiança em spots de high-stakes onde me falta experiência."
+        },
+        {
+          "value": "O Octopi Poker cria e reforça os loops de feedback certos para a tomada de decisões no poker, e é divertido!"
+        }
+      ]
+    },
+    "translation_4": {
+      "items": [
+        {
+          "value": "Octopi Store"
+        },
+        {
+          "value": "Mostre seu polvo interior com produtos Octopi exclusivos. Elegantes e confortáveis, feitos para jogadores como você."
+        },
+        {
+          "value": "Comprar"
+        }
+      ]
+    },
+    "translation_5": {
+      "items": [
+        {
+          "value": "Mercado de Treinamento"
+        },
+        {
+          "value": "Acesso direto aos melhores treinadores de poker para cada jogo, nível e preço."
+        },
+        {
+          "value": "Explore o fórum agora"
+        }
+      ]
+    },
+    "translation_6": {
+      "items": [
+        {
+          "value": "O Vault"
+        },
+        {
+          "value": "Reviva a emoção do poker de apostas altas da Triton, PokerGO, WSOP e mais. Mais de 18 mil mãos e 2 mil sims ICM pré e pós-flop para explorar em jogo ao vivo e formato de replay HH."
+        },
+        {
+          "value": "Ou, teste suas habilidades com nossa experiência imersiva de Trainer e compare suas jogadas com as dos jogadores reais junto com as soluções de IA."
+        },
+        {
+          "value": "Analisar Mãos"
+        }
+      ]
+    },
+    "translation_7": {
+      "items": [
+        {
+          "value": "Tutoriais do Produto"
+        }
+      ]
+    },
+    "translation_8": {
+      "items": [
+        {
+          "value": "Um exemplo de interação com George, o treinador de IA da Octopi"
+        },
+        {
+          "value": "Pergunte ao George"
+        },
+        {
+          "value": "Olá, sou o George, o assistente de IA do mundo do poker. Pergunte-me algo sobre poker e tentarei ajudar no seu caminho para a maestria!"
+        },
+        {
+          "value": "Como calculo as pot odds?"
+        },
+        {
+          "value": "Pergunte ao George"
+        }
+      ]
+    },
+    "translation_9": {
+      "items": [
+        {
+          "value": "© 2025 Octopi Poker Studios, Inc. Todos os direitos reservados."
+        },
+        {
+          "value": "Política de Uso Aceitável"
+        },
+        {
+          "value": "Termos de Serviço"
+        },
+        {
+          "value": "Política de Privacidade"
+        },
+        {
+          "value": "Contate-nos"
+        }
+      ]
+    }
+  }
+}

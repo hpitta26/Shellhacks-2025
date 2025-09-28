@@ -16,6 +16,16 @@ class TranslationItem:
     context: str
     group_id: str
     group_name: str
+    
+    def get_character_limit(self) -> int:
+        """Get character limit based on content type for UI compatibility"""
+        base_length = len(self.content)
+        if self.type in ['header', 'button']:
+            return base_length + 5  # Tight limit for UI elements
+        elif self.type == 'content':
+            return base_length + 20  # More flexibility for content
+        else:
+            return base_length + 10  # Default fallback
 
 @dataclass 
 class TranslationBatch:
@@ -41,6 +51,14 @@ class TranslationBatch:
         for item in self.items:
             formatted_items.append(f"[{item.type.upper()}] {item.content}")
         return "\n".join(formatted_items)
+    
+    def get_character_limits_info(self) -> str:
+        """Get character limit information for translation prompt"""
+        limit_info = []
+        for i, item in enumerate(self.items, 1):
+            limit = item.get_character_limit()
+            limit_info.append(f"Item {i} ({item.type}): max {limit} chars (original: {len(item.content)})")
+        return "\n".join(limit_info)
 
 class ContentBatchProcessor:
     """Processes website content into translation batches"""
