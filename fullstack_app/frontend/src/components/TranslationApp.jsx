@@ -363,7 +363,7 @@ const TranslationApp = ({ onBackToLanding }) => {
               {/* Title + Image Column */}
               <div className="md:w-1/3 md:sticky md:top-32 space-y-6">
                 <div className="bg-stone-900 p-8 text-stone-50">
-                  <h2 className="text-3xl font-light tracking-wide mb-3">
+                  <h2 className="text-2xl font-light tracking-wide mb-3">
                     {getSectionTitle(section, isTranslated)}
                   </h2>
                 </div>
@@ -387,7 +387,7 @@ const TranslationApp = ({ onBackToLanding }) => {
                         // Skip rendering section_title here as it's handled in the sidebar
                         null}
                       {item.type === "header" && (
-                        <h3 className="text-4xl font-light text-stone-900 leading-tight mb-8">
+                        <h3 className="text-3xl font-light text-stone-900 leading-tight mb-8">
                           {item.value}
                         </h3>
                       )}

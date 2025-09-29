@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { FiArrowRight, FiCheck } from 'react-icons/fi'
+import Image from '../assets/image.jpg'
 
 function LandingPage({ onTestApp }) {
   const [email, setEmail] = useState('')
@@ -130,13 +131,12 @@ function LandingPage({ onTestApp }) {
           <h1 className="text-5xl md:text-6xl font-light mb-8 tracking-tight">
             Translate Your Website
           </h1>
-          
           <p className="text-xl md:text-2xl text-gray-400 mb-4 font-light">
             Transform any website into 100+ languages.
           </p>
           
           <p className="text-lg text-gray-500 mb-16 font-light">
-            Context-aware AI that preserves meaning, tone, and brand voice across cultures.
+            Context-aware AI that preserves meaning, tone, brand terms, and UI element sizing across languages.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -153,28 +153,17 @@ function LandingPage({ onTestApp }) {
       {/* Simple Feature Grid */}
       <section className="relative z-10 px-6 py-24 border-t border-gray-800">
         <div className="max-w-6xl mx-auto">
-          <div className="grid md:grid-cols-3 gap-16">
+          <div className="grid md:grid-cols-2 gap-16">
             <div>
-              <h3 className="text-lg font-medium mb-4">Context Intelligence</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Advanced AI analyzes context, cultural nuances, and brand voice 
-                to deliver translations that feel natural in every language.
+              <h3 className="text-xl font-medium mb-4">Context Intelligence</h3>
+              <p className="text-gray-400 text-lg leading-relaxed">
+                Agentic AI System that mimics professional translation workflows that take weeks worth of time and cost companies from 8-30 cents a word. Our system uses a translator-reviewer loop that ensures that tone, brand terms, idioms, and much more all get preserved across translations while also respecting UI element sizing/harmony.
               </p>
             </div>
-            
             <div>
-              <h3 className="text-lg font-medium mb-4">Developer First</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Simple REST API integration. Deploy translations instantly 
-                with comprehensive documentation and SDKs.
-              </p>
-            </div>
-            
-            <div>
-              <h3 className="text-lg font-medium mb-4">Enterprise Ready</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Handle millions of words with consistent quality. 
-                Built for scale with security and compliance standards.
+              <h3 className="text-xl font-medium mb-4">Optimized for Speed while Preserving Context</h3>
+              <p className="text-gray-400 text-lg leading-relaxed">
+                Content doesn't exist in isolation, the meaning/formatting of a elements in websites are always reliant on surrounding content. To solve this problem we seperate the website into context reliant groups, and add comments and metadata to provide the Agents enough context to keep your content consistent/harmonious across languages.
               </p>
             </div>
           </div>
@@ -183,10 +172,13 @@ function LandingPage({ onTestApp }) {
 
       {/* Process */}
       <section className="relative z-10 px-6 py-24 border-t border-gray-800">
-        <div className="max-w-4xl mx-auto">
-          <h2 className="text-2xl font-light mb-16 text-center">How it works</h2>
+        <div className="max-w-6xl mx-auto">
+                   
+
+          <h2 className="text-2xl font-light mb-16 text-center mt-10">How it works</h2>
+           <img src={Image} alt="Description" className='rounded-lg' />
           
-          <div className="space-y-12">
+          <div className="space-y-12 mt-12">
             <div className="flex items-start space-x-6">
               <div className="text-gray-500 text-sm mt-1">01</div>
               <div>
@@ -222,27 +214,6 @@ function LandingPage({ onTestApp }) {
           </div>
         </div>
       </section>
-
-      {/* Stats */}
-      <section className="relative z-10 px-6 py-24 border-t border-gray-800">
-        <div className="max-w-4xl mx-auto">
-          <div className="grid grid-cols-3 gap-8 text-center">
-            <div>
-              <div className="text-3xl font-light mb-2">99.7%</div>
-              <div className="text-gray-500 text-sm">Accuracy</div>
-            </div>
-            <div>
-              <div className="text-3xl font-light mb-2">100+</div>
-              <div className="text-gray-500 text-sm">Languages</div>
-            </div>
-            <div>
-              <div className="text-3xl font-light mb-2">&lt;5min</div>
-              <div className="text-gray-500 text-sm">Processing</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
 
 
       {/* Footer */}
