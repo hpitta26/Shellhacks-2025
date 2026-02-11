@@ -1,0 +1,526 @@
+manifest:
+  version: "0.1.3"
+  schema: https://a2as.org/cert/schema
+  subject:
+    name: hpitta26/shellhacks-2025
+    source: https://github.com/hpitta26/shellhacks-2025
+    branch: main
+    commit: "4e4ebb67"
+    scope: [translation_agency/agent.py, fullstack_app/backend/translation_agency/agent.py, fullstack_app/backend/translation_agency/__init__.py,
+      translation_agency/__init__.py, translation_agency_v2/agent.py, translation_agency_v2/char_limit_validator.py, translation_agency_v2/__init__.py,
+      fullstack_app/backend/main.py, translation_agency_v2/batch_processor.py]
+  issued:
+    by: A2AS.org
+    at: '2026-02-11T16:55:52Z'
+    url: https://a2as.org/certified/agents/hpitta26/shellhacks-2025
+  signatures:
+    digest: sha256:pa5Qh8ZGUQ1-vBOliVxXEF3VQ-oeqb2Sd-gxoxMWunA
+    key: ed25519:eBah5CEaBFCsitSkHhBoZz5rNbutEc5Yva3jGh1PfFo
+    sig: ed25519:H1xDMSrOsg0VcK4FypQGIADvkFk1Ku66bEE0GIyGe87GPEg1UEcWiLsn-Q4esLAKvPu64wgO6qsWfaDYnv9-BQ
+
+agents:
+  agent:
+    type: instance
+    models: [gemini-2.0-flash]
+    params:
+      name: BatchTranslator_{batch.group_id}
+      instruction: create_batch_instruction(batch, i)
+      output_schema: TranslationOutput
+      output_key: translation_{i + 1}
+      description: Translates {batch.group_name} content ({batch.total_items} items)
+      after_agent_callback: length_validator
+      function: create_content_agnostic_workflow
+  dynamic_batch_regeneration_agent:
+    type: instance
+    models: [gemini-2.0-flash]
+    params:
+      name: DynamicBatchRegenerationAgent
+      instruction: dynamic_batch_regeneration_instruction
+      output_key: regenerated_translations
+      description: Regenerates flagged batches with specific feedback
+      function: create_content_agnostic_workflow
+  dynamic_batch_reviewer:
+    type: instance
+    models: [gemini-2.0-flash]
+    params:
+      name: DynamicBatchReviewer
+      instruction: dynamic_batch_review_instruction
+      output_key: batch_review_results
+      description: Reviews all {num_batches} parallel translations and flags issues
+      function: create_content_agnostic_workflow
+  dynamic_final_refinement_agent:
+    type: instance
+    models: [gemini-2.0-flash]
+    params:
+      name: DynamicFinalRefinementAgent
+      instruction: dynamic_final_refinement_instruction
+      output_key: final_translations
+      description: Produces final polished translations for all {num_batches} groups
+      function: create_content_agnostic_workflow
+  initial_translator_agent.0:
+    type: instance
+    models: [gemini-2.0-flash]
+    params:
+      name: InitialTranslatorAgent
+      include_contents: default
+      instruction: [You are a professional translator with language detection and measurement localizing capabilities., 'Your
+          task is a two-step process:', '1.  **Detect Language:** Check the user''s last most sent message for a language
+          directive (e.g., "to French", "in German").', '- If a language is specified, call `set_target_language` with that
+          language.', '- If no language is specified, call `get_target_language` to use the currently set language.', '**CRITICAL
+          RULE:** If the source text contains a clear typo (e.g., ''equpment'' instead of ''equipment''),', 'is highly ambiguous,
+          or makes no sense, you MUST NOT guess.Instead, you MUST call the `ask_clarifying_question` tool', 'to state your
+          question.After calling the tool, output only the phrase: "Waiting for clarification."', '2.  **Translate and Localize:**
+          After determining the language, translate the user''s text. You MUST also convert formats and units for a non-US
+          audience.', '* **Dates:** Convert `MM/DD/YYYY` to `DD/MM/YYYY`.', '* **Measurements:** Convert imperial units to
+          metric.', '* miles -> kilometers (km)', '* pounds (lbs) -> kilograms (kg)', '* feet -> meters (m)', '* **Temperature:**
+          Convert Fahrenheit (°F) to Celsius (°C).', '3.  **Output:** Output ONLY the final, translated, and localized text.
+          Do not include original values, explanations, or commentary.', 'Examples:', 'User: "Hello" → Check language, translate
+          to current/default, output: "Hola"', 'User: "Hello in French" → Set to French, output: "Bonjour"', 'User: "Weather
+          is nice to German" → Set to German, output: "Das Wetter ist schön",', 'description="Detects target language and
+          performs initial translation.",', 'tools=[set_target_language, get_target_language],', output_key=STATE_CURRENT_TRANSLATION,
+        '**Example Workflow:**', 'User: "The package weighs 10 pounds and must be delivered 50 miles by 12/31/2024 to French"',
+        'You:', 1) Call set_target_language("French"), '2) Output: "Le colis pèse 4.54 kg et doit être livré à 80.47 km d''ici
+          le 31/12/2024."']
+      instance: initial_translator_agent
+  initial_translator_agent.1:
+    type: instance
+    models: [gemini-2.0-flash]
+    params:
+      name: InitialTranslatorAgent
+      include_contents: none
+      instruction: [You are a translation bot. Your ONLY job is to output translations., 'Source Text (English): {{session.state["source_text"]}}',
+        'Target Language: {{session.state["target_language"]}}', 'OUTPUT RULES:', '- Output ONLY the translation in the target
+          language', '- Do NOT add ANY explanations, greetings, or commentary', '- Do NOT use quotation marks around the translation',
+        '- Do NOT say "Here is the translation" or similar phrases', '- JUST output the translated text directly', 'Example:',
+        'If translating "Hello world" to Spanish, output only: Hola mundo', 'Now translate the source text to the target language:']
+      description: Performs initial translation from English to the specified target language.
+      output_key: current_translation
+      instance: initial_translator_agent
+  language_selector_agent:
+    type: instance
+    models: [gemini-2.0-flash]
+    tools: [set_target_language]
+    params:
+      name: LanguageSelectorAgent
+      include_contents: none
+      instruction: [You are a language selection assistant., 'Current target language: {{session.state["target_language"]}}',
+        The user wants to translate English text to another language., 'Common languages include: Spanish, French, German,
+          Italian, Portuguese, Chinese (Mandarin),', 'Japanese, Korean, Arabic, Russian, Hindi, Dutch, Swedish, Polish, Turkish.',
+        'If no specific language is mentioned, use Spanish as the default.', Call the set_target_language function with the
+          appropriate language., 'OUTPUT: After setting the language, confirm by saying only:', '"Target language set to:
+          [language]"']
+      description: Sets the target language for translation.
+  main_translation_pipeline:
+    type: instance
+    params:
+      name: MainTranslationPipeline
+      description: Main translation pipeline that translates and refines.
+      sub_agents: [initial_translator_agent, translation_refinement_loop]
+  parallel_group:
+    type: instance
+    params:
+      name: ParallelGroup{group_idx + 1}
+      description: Translates {...} in parallel
+      function: create_content_agnostic_workflow
+      sub_agents: [group_agents]
+  root_agent.0:
+    type: instance
+    params:
+      name: IterativeTranslationPipeline
+      description: Translates English text to any language (default Spanish) with iterative quality refinement.
+      sub_agents: [initial_translator_agent, translation_refinement_loop]
+      instance: root_agent
+  root_agent.1:
+    type: instance
+    params:
+      name: IterativeTranslationPipeline
+      description: Translates English text to any language with iterative quality refinement using critic feedback.
+      instance: root_agent
+      sub_agents: [main_translation_pipeline]
+  root_agent.2:
+    type: instance
+    params:
+      name: ContentAgnosticTranslationWorkflow
+      description: 'Content-agnostic translation workflow: {num_batches} groups → staged parallel → review → regeneration
+        → refinement'
+      function: create_content_agnostic_workflow
+      instance: root_agent
+      sub_agents: [staged_parallel_translator, dynamic_batch_reviewer, dynamic_batch_regeneration_agent, dynamic_final_refinement_agent]
+  staged_parallel_translator:
+    type: instance
+    params:
+      name: DynamicStagedParallelTranslator
+      description: Executes {num_batches} batch translations in {num_parallel_groups} staged parallel groups
+      function: create_content_agnostic_workflow
+      sub_agents: [parallel_groups]
+  translation_critic_agent.0:
+    type: instance
+    models: [gemini-2.0-flash]
+    params:
+      name: TranslationCriticAgent
+      include_contents: default
+      instruction: [You are a multilingual translation quality reviewer., Look at the current translation that was just produced.,
+        'Based on the conversation context, determine what language it''s supposed to be in.', 'Evaluate the translation for:',
+        '1. Grammar - Is it grammatically correct in that language?', '2. Fluency - Does it sound natural in that language?',
+        'IF there are issues:', '- Output specific corrections', '- Be concise and specific', 'IF the translation looks good:',
+        '- Output EXACTLY: Translation is accurate and fluent.', '- Nothing else']
+      description: Reviews translation quality.
+      output_key: translation_critique
+      instance: translation_critic_agent
+  translation_critic_agent.1:
+    type: instance
+    models: [gemini-2.0-flash]
+    params:
+      name: TranslationCriticAgent
+      include_contents: none
+      instruction: [You are a translation validator bot. Analyze the translation quality., 'Original English: {{session.state["source_text"]}}',
+        'Target Language: {{session.state["target_language"]}}', 'Current Translation: {{session.state["current_translation"]}}',
+        'EVALUATION RULES:', 'Check for:', '1. Accuracy - meaning preserved?', '2. Grammar - correct in target language?',
+        '3. Natural flow - sounds native?', 'OUTPUT RULES:', 'IF translation needs improvement:', '- Output ONLY specific
+          corrections needed', '- Example: "Change ''X'' to ''Y'' for better fluency"', '- Do NOT add explanations or greetings',
+        'IF translation is good enough:', '- Output EXACTLY: Translation is accurate and fluent.', '- Nothing else', 'Your
+          evaluation:']
+      description: Reviews translation quality and provides specific improvement suggestions or signals completion.
+      output_key: translation_critique
+      instance: translation_critic_agent
+  translation_refinement_loop.0:
+    type: instance
+    params:
+      name: TranslationRefinementLoop
+      max_iterations: "5"
+      sub_agents: [translation_critic_agent, translation_refiner_agent]
+      instance: translation_refinement_loop
+  translation_refinement_loop.1:
+    type: instance
+    params:
+      name: TranslationRefinementLoop
+      max_iterations: "5"
+      instance: translation_refinement_loop
+      sub_agents: [translation_critic_agent, translation_refiner_agent]
+  translation_refiner_agent.0:
+    type: instance
+    models: [gemini-2.0-flash]
+    tools: [exit_translation_loop]
+    params:
+      name: TranslationRefinerAgent
+      include_contents: default
+      instruction: [You are a multilingual translation refiner., Look at the critique that was just provided., 'IF the critique
+          says EXACTLY "Translation is accurate and fluent.":', '- Call exit_translation_loop function', '- Do not output
+          any text', 'ELSE:', '- Apply the suggested corrections', '- Output ONLY the improved translation', '- Keep the same
+          target language as the previous translation', '- No explanations, just the refined translation text']
+      description: Refines translation based on critique.
+      output_key: current_translation
+      instance: translation_refiner_agent
+  translation_refiner_agent.1:
+    type: instance
+    models: [gemini-2.0-flash]
+    tools: [exit_translation_loop]
+    params:
+      name: TranslationRefinerAgent
+      include_contents: none
+      instruction: [You are a translation refiner bot., 'Original English: {{session.state["source_text"]}}', 'Target Language:
+          {{session.state["target_language"]}}', 'Current Translation: {{session.state["current_translation"]}}', 'Critique:
+          {{session.state["translation_critique"]}}', 'DECISION:', 'IF critique is EXACTLY "Translation is accurate and fluent.":',
+        '- Call exit_translation_loop function', '- Output nothing', 'ELSE:', '- Apply the corrections mentioned in critique',
+        '- Output ONLY the improved translation', '- No explanations, just the refined translation text', 'Action:']
+      description: Refines translation based on critique, or exits loop if translation is complete.
+      output_key: current_translation
+      instance: translation_refiner_agent
+
+models:
+  gemini-2.0-flash:
+    type: literal
+    agents: [initial_translator_agent.0, translation_critic_agent.0, translation_refiner_agent.0, language_selector_agent,
+      initial_translator_agent.1, translation_critic_agent.1, translation_refiner_agent.1, agent, dynamic_batch_reviewer,
+      dynamic_batch_regeneration_agent, dynamic_final_refinement_agent]
+
+tools:
+  exit_translation_loop:
+    type: function
+    agents: [translation_refiner_agent.0, translation_refiner_agent.1]
+    params:
+      description: Call this function ONLY when the translation critique indicates no further improvements are needed.
+  set_target_language:
+    type: function
+    agents: [language_selector_agent]
+    params:
+      description: Sets the target language for translation. Default is Spanish.
+
+teams:
+  main_translation_pipeline:
+    type: sequential
+    agents: [main_translation_pipeline, initial_translator_agent, translation_refinement_loop]
+  parallel_group:
+    type: parallel
+    agents: [parallel_group, group_agents]
+  root_agent:
+    type: sequential
+    agents: [root_agent, initial_translator_agent, translation_refinement_loop]
+  root_agent.1:
+    type: sequential
+    agents: [root_agent.1, main_translation_pipeline]
+  root_agent.2:
+    type: sequential
+    agents: [root_agent.2, staged_parallel_translator, dynamic_batch_reviewer, dynamic_batch_regeneration_agent, dynamic_final_refinement_agent]
+  staged_parallel_translator:
+    type: sequential
+    agents: [staged_parallel_translator, parallel_groups]
+  translation_refinement_loop:
+    type: loop
+    agents: [translation_refinement_loop, translation_critic_agent, translation_refiner_agent]
+  translation_refinement_loop.1:
+    type: loop
+    agents: [translation_refinement_loop.1, translation_critic_agent, translation_refiner_agent]
+
+imports:
+  Any: typing.Any
+  APP_NAME: translation_agency_v2.agent.APP_NAME
+  AsyncGenerator: typing.AsyncGenerator
+  asyncio: asyncio
+  BaseAgent: google.adk.agents.BaseAgent
+  BaseModel: pydantic.BaseModel
+  CallbackContext: google.adk.agents.callback_context.CallbackContext
+  Content: google.genai.types.Content
+  ContentBatchProcessor: translation_agency_v2.batch_processor.ContentBatchProcessor
+  CORSMiddleware: fastapi.middleware.cors.CORSMiddleware
+  create_content_agnostic_workflow: translation_agency_v2.agent.create_content_agnostic_workflow
+  create_length_validation_callback: char_limit_validator.create_length_validation_callback
+  dataclass: dataclasses.dataclass
+  Dict: typing.Dict
+  Event: google.adk.events.Event
+  EventActions: google.adk.events.EventActions
+  FastAPI: fastapi.FastAPI
+  Field: pydantic.Field
+  HTTPException: fastapi.HTTPException
+  InMemoryRunner: google.adk.runners.InMemoryRunner
+  InMemorySessionService: google.adk.sessions.InMemorySessionService
+  InvocationContext: google.adk.agents.invocation_context.InvocationContext
+  json: json
+  List: typing.List
+  LlmAgent: google.adk.agents.LlmAgent
+  load_dotenv: dotenv.load_dotenv
+  logging: logging
+  LoopAgent: google.adk.agents.LoopAgent
+  Optional: typing.Optional
+  os: os
+  ParallelAgent: google.adk.agents.ParallelAgent
+  Part: google.genai.types.Part
+  root_agent: agent.root_agent
+  Runner: google.adk.runners.Runner
+  SequentialAgent: google.adk.agents.SequentialAgent
+  Session: google.adk.sessions.Session
+  sys: sys
+  tempfile: tempfile
+  time: time
+  ToolContext: google.adk.tools.tool_context.ToolContext
+  traceback: traceback
+  TranslationBatch: batch_processor.TranslationBatch
+  types: google.genai.types
+  uuid: uuid
+
+functions:
+  __init__:
+    type: sync
+    module: translation_agency_v2.batch_processor
+    args: [self, content_file_path]
+  _create_batches_by_group:
+    type: sync
+    module: translation_agency_v2.batch_processor
+    args: [self]
+    params:
+      returns: List[TranslationBatch]
+  ask_clarifying_question:
+    type: sync
+    module: translation_agency.agent
+    args: [tool_context, question]
+  convert_frontend_to_v2_format:
+    type: sync
+    module: fullstack_app.backend.main
+    args: [frontend_sections]
+  convert_v2_to_frontend_format:
+    type: sync
+    module: fullstack_app.backend.main
+    args: [v2_state, original_sections]
+  create_batch_instruction:
+    type: sync
+    module: translation_agency_v2.agent
+    args: [batch_info, batch_idx]
+  create_batches:
+    type: sync
+    module: translation_agency_v2.batch_processor
+    args: [self]
+    params:
+      returns: List[TranslationBatch]
+  create_content_agnostic_workflow:
+    type: sync
+    module: translation_agency_v2.agent
+    args: [content_file_path]
+  create_length_validation_callback:
+    type: sync
+    module: translation_agency_v2.char_limit_validator
+    args: [batch]
+    params:
+      returns: callable
+  create_v2_session_state:
+    type: sync
+    module: fullstack_app.backend.main
+    args: [v2_content, target_language]
+  dynamic_batch_regeneration_instruction:
+    type: sync
+    module: translation_agency_v2.agent
+    args: [ctx]
+  dynamic_batch_review_instruction:
+    type: sync
+    module: translation_agency_v2.agent
+    args: [ctx]
+  dynamic_final_refinement_instruction:
+    type: sync
+    module: translation_agency_v2.agent
+    args: [ctx]
+  exit_translation_loop:
+    type: sync
+    module: fullstack_app.backend.translation_agency.agent
+    args: [tool_context]
+  get_batch_context:
+    type: sync
+    module: translation_agency_v2.batch_processor
+    args: [self]
+    params:
+      returns: str
+  get_batch_summary:
+    type: sync
+    module: translation_agency_v2.batch_processor
+    args: [self]
+    params:
+      returns: Dict
+  get_brand_terms:
+    type: sync
+    module: translation_agency_v2.batch_processor
+    args: [self]
+    params:
+      returns: List[str]
+  get_character_limit:
+    type: sync
+    module: translation_agency_v2.batch_processor
+    args: [self]
+    params:
+      returns: int
+  get_character_limits_info:
+    type: sync
+    module: translation_agency_v2.batch_processor
+    args: [self]
+    params:
+      returns: str
+  get_character_limits_summary:
+    type: sync
+    module: translation_agency_v2.char_limit_validator
+    args: [batches]
+    params:
+      returns: str
+  get_formatted_content:
+    type: sync
+    module: translation_agency_v2.batch_processor
+    args: [self]
+    params:
+      returns: str
+  get_glossary_terms:
+    type: sync
+    module: translation_agency_v2.batch_processor
+    args: [self]
+    params:
+      returns: Dict
+  get_source_texts:
+    type: sync
+    module: translation_agency_v2.batch_processor
+    args: [self]
+    params:
+      returns: List[str]
+  get_target_language:
+    type: sync
+    module: translation_agency.agent
+    args: [tool_context]
+  health_check:
+    type: async
+    module: fullstack_app.backend.main
+  length_validation_callback:
+    type: sync
+    module: translation_agency_v2.char_limit_validator
+    args: [callback_context]
+    params:
+      returns: Optional[types.Content]
+  load_content:
+    type: sync
+    module: translation_agency_v2.batch_processor
+    args: [self]
+    params:
+      returns: Dict
+  root:
+    type: async
+    module: fullstack_app.backend.main
+  set_target_language:
+    type: sync
+    module: fullstack_app.backend.translation_agency.agent
+    args: [tool_context, language]
+  shutdown_event:
+    type: async
+    module: fullstack_app.backend.main
+  startup_event:
+    type: async
+    module: fullstack_app.backend.main
+  translate_sections:
+    type: async
+    module: fullstack_app.backend.main
+    args: [request]
+  translate_single_item:
+    type: async
+    module: fullstack_app.backend.main
+    args: [text, target_language, base_session_id, user_id]
+    params:
+      returns: str
+  translate_text:
+    type: async
+    module: fullstack_app.backend.main
+    args: [request]
+  validate_translation_length:
+    type: sync
+    module: translation_agency_v2.char_limit_validator
+    args: [translation_json, batch]
+    params:
+      returns: Dict
+
+variables:
+  GOOGLE_API_KEY:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [translation_agency_v2.agent]
+  GOOGLE_GENAI_USE_VERTEXAI:
+    type: env
+    params:
+      caller: [os.environ]
+
+files:
+  "..":
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [os.path.dirname(), "..", ".."]
+  .json:
+    type: literal
+    actions: [write]
+    params:
+      caller: [tempfile.NamedTemporaryFile]
+      mode: w
+      delete: "False"
+  temp_file:
+    type: variable
+    actions: [delete]
+    params:
+      caller: [os.unlink]
+  website_content.json:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [project_root, translation_agency_v2, website_content.json]
